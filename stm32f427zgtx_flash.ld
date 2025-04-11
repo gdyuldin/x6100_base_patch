@@ -80,7 +80,7 @@ SECTIONS
   /* The program code and other data goes into FLASH */
   .text :
   {
-    . = . + 390092; /* add padding */
+    . = . + 380524; /* add padding */
     . = ALIGN(4);
     *(.text)           /* .text sections (code) */
     *(.text*)          /* .text* sections (code) */

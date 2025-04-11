@@ -77,7 +77,7 @@ def align(addr, val=4):
 
 
 def main():
-    with open("X6100_BBFW_V1.1.8_240915003_160hz_fm.bin", "rb") as f:
+    with open("X6100_BBFW_V1.1.6_221112001_p160.bin", "rb") as f:
         orig_code = f.read()
     with open(f"build/Release/{prog_name}.bin", "rb") as f:
         patched_code = f.read()
@@ -88,14 +88,14 @@ def main():
     # value from reset_handler and first 4 bytes from firmware
     stack_p_addr = 0x20030000
     stack_p_0 = start_offset
-    stack_p_1 = 0x08034aa8
+    stack_p_1 = 0x08032dbc
     # 256 is a len of struct for compressor
     stack_new_p = stack_p_addr - 256
 
     # somewhere within process
-    inject_comp_addr = 0x08024e70
+    inject_comp_addr = 0x08024b06
     # somewhere at begin of reset_handler
-    inject_mem_addr  = 0x08034a9a
+    inject_mem_addr  = 0x08032dae
 
     compress_start, compress_end = get_func_start_end("compress")
     fill_mem_start, fill_mem_end = get_func_start_end("fill_zero")
@@ -169,9 +169,14 @@ def main():
             dst[to_offset: to_offset + 4] = dst[from_offset: from_offset + 4]
         dst[from_offset: from_offset + 4] = jump_code
 
+    #insert FM
+    fm_mod_addr = 0x08022db0 - start_offset
+    dst[fm_mod_addr: fm_mod_addr + 4] = np.float32(30.0).tobytes()
+
     build_time = b"160Hz FM C"
     assert len(build_time) < 12
-    dst[0x1ce00: 0x1ce00+len(build_time)] = build_time
+    build_time_addr = 0x0803b204 - start_offset
+    dst[build_time_addr: build_time_addr+len(build_time)] = build_time
 
     with open("patched.bin", "wb") as f:
         f.write(dst)

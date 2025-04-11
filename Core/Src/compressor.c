@@ -83,9 +83,9 @@ __attribute__((optimize("O1"))) void fill_zero(void) {
 
 
 __attribute__((noinline)) float compress(float val) {
-    uint8_t *modulation = (uint8_t *)0x2000853d;
-    uint8_t *cmp_enabled = (uint8_t *)0x2000005c;
-    uint8_t *cmp_level = (uint8_t *)0x2000005b;
+    uint8_t *modulation = (uint8_t *)0x2000a8cd;
+    uint8_t *cmp_enabled = (uint8_t *)0x200000c4;
+    uint8_t *cmp_level = (uint8_t *)0x200000c3;
 
     // Invert (make enabled by default)
     if (*cmp_enabled) {

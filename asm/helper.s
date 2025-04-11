@@ -56,7 +56,7 @@ _jump_to_fill_mem:
 
 .section .fill_mem_wrapper, "ax"
 _fill_mem_wrapper:
-  bl 0x080348b4  // from orig code, SystemInit
+  bl 0x08032bf8  // from orig code, SystemInit
   bl _fill_mem
   b _jump_to_fill_mem + 4
 
