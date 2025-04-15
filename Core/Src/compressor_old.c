@@ -101,8 +101,14 @@ inline float lin2db(float val) {
 // 0.0075 - 5w
 // 0.008 - 5 w
 
+// 1 - 5w
+// 0.4 - 4.8w
+// 0.35 - 4w
+// 0.3 - 3.1w
+// 0.1 - 0.1W
+
 #define OFFSET (-30)
-#define LEVEL (0.00725f)
+#define LEVEL (0.35f)
 
 static uint32_t step;
 static uint32_t *step_p = &step;

@@ -25,21 +25,19 @@ _jump_to_comp:
 .section .comp_wrapper,"ax"
 _comp_wrapper:
     // bl 0x08035ce0  // arm_fir_decimate_f32
-    nop
-    nop
-    // s2, s3, s4, s5, s6, s7, s8 s9, s10, s11, s12, s13, s14, s15
-    // r2, r3
-    // pointer to tx_audio in r1
-    vldr s0, [r1];
+    // nop
+    // nop
+    bl 0x0803436c  // arm_biquad_cascade_df1_f32
+    vldr.32 s0, [sp, #0x58]  // sp+0x58  tx_audio
     push {r0, r1, r2, r3, r4, ip, lr}
     vpush {s1-s17}
-    // move arg to s0
+
     bl _compressor
-    // move res from s0
-    // vpop {s0, s1, s12-s16}
+
     vpop {s1-s17}
     pop {r0, r1, r2, r3, r4, ip, lr}
-    vstr s0, [r1];
+    vstr.32 s0, [sp, #0x58]
+
     b _jump_to_comp + 4
 
 .section .compressor, "ax"

@@ -19,7 +19,8 @@
 #define MAX(a, b) (a > b ? a : b)
 #define MIN(a, b) (a < b ? a : b)
 
-#define UNITY_LVL -45.0f
+// #define UNITY_LVL -45.0f
+#define UNITY_LVL -10.0f
 #define NOISE_LVL (UNITY_LVL - 35.0f)
 
 #define DELAY 60
@@ -46,8 +47,8 @@ typedef struct {
     struct ring_buf dline;
     struct ring_buf squared_acc;
     float squared_sum;
-    float dc_ym1;
-    float dc_xm1;
+    // float dc_ym1;
+    // float dc_xm1;
 } comp_data_t;
 
 
@@ -112,10 +113,10 @@ __attribute__((noinline)) float compress(float val) {
     //sizeof(comp_data_t);
 
 
-    float tmp = val - comp_data->dc_xm1 + (1.0f - DC_OFFSET_ALPHA) * comp_data->dc_ym1;
-    comp_data->dc_xm1 = val;
-    comp_data->dc_ym1 = tmp;
-    val = tmp;
+    // float tmp = val - comp_data->dc_xm1 + (1.0f - DC_OFFSET_ALPHA) * comp_data->dc_ym1;
+    // comp_data->dc_xm1 = val;
+    // comp_data->dc_ym1 = tmp;
+    // val = tmp;
 
     ring_buf_put(&comp_data->dline, val);
 

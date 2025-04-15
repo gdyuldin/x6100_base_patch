@@ -89,11 +89,11 @@ def main():
     stack_p_addr = 0x20030000
     stack_p_0 = start_offset
     stack_p_1 = 0x08032dbc
-    # 512 is a len of struct for compressor
-    stack_new_p = stack_p_addr - 512
+    # 504 is a len of struct for compressor
+    stack_new_p = stack_p_addr - 504
 
     # somewhere within process
-    inject_comp_addr = 0x08024b06
+    inject_comp_addr = 0x08024b18
     # somewhere at begin of reset_handler
     inject_mem_addr  = 0x08032dae
 
@@ -165,8 +165,8 @@ def main():
         jump_code = get_patched_section(elf, f".{from_sec_name}")
 
         # Copy instructions
-        if to_sec_name != "fill_mem_wrapper":
-            dst[to_offset: to_offset + 4] = dst[from_offset: from_offset + 4]
+        # if to_sec_name != "fill_mem_wrapper":
+        #     dst[to_offset: to_offset + 4] = dst[from_offset: from_offset + 4]
         dst[from_offset: from_offset + 4] = jump_code
 
     #insert FM
