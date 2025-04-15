@@ -31,14 +31,14 @@ _comp_wrapper:
     // r2, r3
     // pointer to tx_audio in r1
     vldr s0, [r1];
-    push {r0, r1, r2, r3, ip, lr}
-    vpush {s2-s15}
+    push {r0, r1, r2, r3, r4, ip, lr}
+    vpush {s1-s17}
     // move arg to s0
     bl _compressor
     // move res from s0
     // vpop {s0, s1, s12-s16}
-    vpop {s2-s15}
-    pop {r0, r1, r2, r3, ip, lr}
+    vpop {s1-s17}
+    pop {r0, r1, r2, r3, r4, ip, lr}
     vstr s0, [r1];
     b _jump_to_comp + 4
 

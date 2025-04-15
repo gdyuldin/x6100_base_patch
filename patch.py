@@ -89,8 +89,8 @@ def main():
     stack_p_addr = 0x20030000
     stack_p_0 = start_offset
     stack_p_1 = 0x08032dbc
-    # 256 is a len of struct for compressor
-    stack_new_p = stack_p_addr - 256
+    # 512 is a len of struct for compressor
+    stack_new_p = stack_p_addr - 512
 
     # somewhere within process
     inject_comp_addr = 0x08024b06
@@ -173,7 +173,7 @@ def main():
     fm_mod_addr = 0x08022db0 - start_offset
     dst[fm_mod_addr: fm_mod_addr + 4] = np.float32(30.0).tobytes()
 
-    build_time = b"160Hz FM C"
+    build_time = b"160Hz FM C2"
     assert len(build_time) < 12
     build_time_addr = 0x0803b204 - start_offset
     dst[build_time_addr: build_time_addr+len(build_time)] = build_time
