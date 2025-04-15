@@ -18,17 +18,16 @@
 #define MAX(a, b) (a > b ? a : b)
 #define MIN(a, b) (a < b ? a : b)
 
-#define UNITY_LVL -40.0f
+#define UNITY_LVL -42.0f
 
 #define DELAY 60
 #define ATT_ALPHA 0.035957992f
 #define RELEASE_ALPHA 0.00061015395f
 #define RATIO_COMP 4.0f
 #define RATIO_GATE 0.25f
-#define TH_COMP (UNITY_LVL - 4.0f)
+#define TH_COMP -44.0f
 #define TH_GATE TH_COMP
-// #define MAKEUP 24.0f
-#define MAKEUP ((UNITY_LVL - TH_COMP) * (RATIO_COMP - 1.0f))
+#define MAKEUP ((UNITY_LVL - TH_COMP) * (1.0f - 1.0f/RATIO_COMP) + 4.0f)
 
 
 struct delay_line {
