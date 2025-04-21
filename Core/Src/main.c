@@ -65,6 +65,7 @@ int main(void)
 
   /* USER CODE BEGIN 1 */
   fill_zero();
+  compress(2.0f);
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -156,6 +157,9 @@ void Error_Handler(void)
   while (1)
   {
     compress(0.5f);
+    float a, b;
+    tx_amp(&a, &b);
+    tx_coeff_calc(a);
   }
   /* USER CODE END Error_Handler_Debug */
 }
