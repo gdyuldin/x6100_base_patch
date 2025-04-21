@@ -256,12 +256,13 @@ def main():
             dst[to_offset: to_offset + 4] = dst[from_offset: from_offset + 4]
         dst[from_offset: from_offset + 4] = jump_code
 
-    build_time = b"r1"
+    ver = "r1"
+    build_time = ver.encode() + bytes(11 - len(ver))
     assert len(build_time) < 12
     build_time_addr = 0x0803b204 - start_offset
     dst[build_time_addr: build_time_addr+len(build_time)] = build_time
 
-    with open(f"firmwares/X6100_BBFW_V1.1.6_221112001_{build_time.decode()}.bin", "wb") as f:
+    with open(f"firmwares/X6100_BBFW_V1.1.6_221112001_{ver}.bin", "wb") as f:
         f.write(dst)
 
 
