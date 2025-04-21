@@ -5,7 +5,7 @@ It might be used with OEM GUI and with alternative firmware. Some of parameters 
 
 Disclaimer: this code provided as is, use it for your own risk.
 
-Compiled firmwares might be downloaded at [firmwares](./firmares/) directory.
+Compiled firmwares might be downloaded at [firmwares](./firmwares/) directory.
 
 ## Changelog:
 
