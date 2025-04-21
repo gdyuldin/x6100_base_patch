@@ -14,6 +14,7 @@ Compiled firmwares might be downloaded at [firmwares](./firmwares/) directory.
 * FM modulation depth increased 10 times.
 * Fixed AM TX (changed levels of the carrier and the signal level), added a soft limiter for AM to prevent overmodulation.
 * True output power control (not only ACL threshold)
+* TX bandpass filter low bound is 160 Hz
 
 
 ## Hacking instruction
