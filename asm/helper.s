@@ -30,13 +30,13 @@ _comp_wrapper:
     // bl 0x0803436c  // arm_biquad_cascade_df1_f32
     // vldr.32 s0, [sp, #0x58]  // sp+0x58  tx_audio
     vldr s0, [r1]
-    push {r0-r4, ip, lr}
-    vpush {s1-s18}
+    push {r0-r4, lr}
+    vpush {s1-s15}
 
     bl _compressor
 
-    vpop {s1-s18}
-    pop {r0-r4, ip, lr}
+    vpop {s1-s15}
+    pop {r0-r4, lr}
     vstr s0, [r1]
 
     b _jump_to_comp + 4
@@ -117,13 +117,50 @@ _jump_to_tx_coeff_calc_wrapper:
 .section .tx_coeff_calc_wrapper, "ax"
 _tx_coeff_calc_wrapper:
   vstr.32 s0, [r2]  // from original code
-  push {r0-r3, lr}
-  vpush {s4-s15}
+  push {r1-r3, lr}
+  vpush {s11-s15}
   bl _tx_coeff_calc
-  vpop {s4-s15}
-  pop {r0-r3, lr}
+  vpop {s11-s15}
+  pop {r1-r3, lr}
   b _jump_to_tx_coeff_calc_wrapper + 4
 
 .section .tx_coeff_calc, "ax"
 _tx_coeff_calc:
+  nop
+
+
+// AM/FM block
+/*
+  Saving s14 (demoulated signal) to [r2,#0x8]
+   08027de0 82 ed 02 7a     vstr.32 s14,[r2,#0x8]=>DAT_20008fa8
+
+  I and Q in 20008138 and 2000813c
+  AM demodulated in 20008140
+
+*/
+
+.section .insert_to_am_fm_rx_process, "ax"
+_jump_to_am_fm_rx_process_wrapper:
+  b _am_fm_rx_process_wrapper
+
+.section .am_fm_rx_process_wrapper, "ax"
+_am_fm_rx_process_wrapper:
+  // save registers
+  vpush {s0}  // 1
+  VMOV s0,s14
+  vpush {s3-s15} // 13
+  push {r0-r5, ip, lr} // 8
+  ldrb.w r2, [sp, 0x57 + ((1 + 13 + 8) * 4)]
+  LDR r0,=0x20008138
+  LDR r1,=0x2000813c
+  bl _am_fm_rx_process
+  pop {r0-r5, ip, lr}
+  vstr.32 s0,[r2,#0x8]  // Original code
+  vpop {s3-s15}
+  VMOV s14, s0
+  vpop {s0}
+  b _jump_to_am_fm_rx_process_wrapper + 4
+
+.section .am_fm_rx_process, "ax"
+_am_fm_rx_process:
   nop

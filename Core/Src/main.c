@@ -66,6 +66,7 @@ int main(void)
   /* USER CODE BEGIN 1 */
   fill_zero();
   compress(2.0f);
+  am_fm_rx_process(NULL, NULL, NULL);
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/

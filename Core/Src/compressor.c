@@ -4,7 +4,8 @@
 #include "stdint.h"
 #include "log10f.c"
 #include "powf.c"
-#include "sqrtf.c"
+// #include "sqrtf.c"
+
 
 // 1 - 7+ W
 // 0.1 - 5W
@@ -30,13 +31,15 @@ Compressor values
 #define DELAY 60
 #define ATT_ALPHA 0.035957992f
 #define RELEASE_ALPHA 0.00061015395f
-#define RATIO_COMP 4.0f
+// #define RATIO_COMP 4.0f
 #define RATIO_GATE 0.25f
 #define TH_COMP (NOISE_LVL + 25.0f)
 #define TH_GATE TH_COMP
-#define MAKEUP ((UNITY_LVL - TH_COMP) * (1.0f - 1.0f/RATIO_COMP) - 2.0f)
+// #define MAKEUP ((UNITY_LVL - TH_COMP) * (1.0f - 1.0f/RATIO_COMP) - 2.0f)
 
-#define DC_OFFSET_ALPHA (0.05f)
+#define TX_DC_BLOCKER_ALPHA (0.05f)
+#define RX_AM_DC_BLOCKER_ALPHA (0.03f)
+#define RX_FM_DC_BLOCKER_ALPHA (0.01f)
 
 /*
 Limiter
@@ -44,35 +47,6 @@ Limiter
 
 #define LIMITER_MAX_VAL 0.00769f
 
-
-struct ring_buf {
-    float data[DELAY];
-    uint32_t w;
-    uint32_t r;
-};
-
-typedef struct {
-    float l1_comp;
-    float l1_gate;
-    float corr;
-    struct ring_buf dline;
-    struct ring_buf squared_acc;
-    float squared_sum;
-
-    // dc block
-    float dc_xm1;
-    float dc_ym1;
-
-    // tx amp coeffs
-    float tx_p_k_ssb;
-    float tx_p_k_cw;
-    float tx_p_k_am;
-    float tx_p_k_fm;
-
-    // tone
-    uint32_t tone_step;
-    uint32_t _pad;
-} data_t;
 
 enum __attribute__((__packed__)) mod_t {
     MOD_LSB,
@@ -85,10 +59,64 @@ enum __attribute__((__packed__)) mod_t {
     MOD_NFM,
 };
 
+struct ring_buf {
+    float data[DELAY];
+    uint32_t w;
+    uint32_t r;
+};
+
+
+struct dc_blocker_t {
+    float xm1;
+    float ym1;
+};
+
+typedef struct {
+    /* Compressor data */
+    float ratio_comp;
+    float makeup;
+
+    float l1_comp;
+    float l1_gate;
+    float corr;
+    struct ring_buf dline;
+    struct ring_buf squared_acc;
+    float squared_sum;
+
+    // tx dc block
+    struct dc_blocker_t tx_dc_blocker;
+
+    /* TX level control data */
+    // tx amp coeffs
+    float tx_p_k_ssb;
+    float tx_p_k_cw;
+    float tx_p_k_am;
+    float tx_p_k_fm;
+
+    /* AM/FM RX processing data */
+    // rx am/fm DC blocker
+    struct dc_blocker_t rx_am_dc_blocker;
+    struct dc_blocker_t rx_fm_dc_blocker;
+
+    // rx fm_sql
+    uint32_t fm_sql_counter;
+    float fm_iq_squared_sum;
+    uint32_t fm_iq_squared_cnt;
+    float fm_iq_rms_db;
+
+    enum mod_t prev_modulation;
+
+    /* Debug and pad */
+    // tone
+    uint32_t tone_step;
+    uint32_t _pat[2];
+} data_t;
+
 #define DATA_P (0x20030000 - sizeof(data_t))
 #define MODULATION_P 0x2000a8cd
 #define CMP_ENABLED_P 0x200000c4
 #define CMP_LEVEL_P 0x200000c3
+#define SQL_P 0x200000a9
 
 static data_t data;
 static data_t *data_p = &data;
@@ -102,7 +130,7 @@ inline float db2lin(float val) {
 }
 
 inline float lin2db(float val) {
-    return 20.0f * log10f_c(val + 1e-6f);
+    return 20.0f * log10f_c(val + 1e-16f);
 }
 
 /*
@@ -143,6 +171,16 @@ __attribute__((optimize("O1"))) void fill_zero(void) {
     for (;area_start < area_end; area_start++) {
         *area_start = 0;
     }
+}
+
+/*
+DC blocker
+*/
+inline float dc_blocker(float val, float k, struct dc_blocker_t *dc) {
+    float tmp = val - dc->xm1 + k * dc->ym1;
+    dc->xm1 = val;
+    dc->ym1 = tmp;
+    return tmp;
 }
 
 /*
@@ -249,11 +287,13 @@ __attribute__((noinline, optimize("O2"))) float compress(float val) {
     // data_t *comp_data = (data_t*)data_p;
     data_t *data = (data_t*)DATA_P;
 
+    if (data->ratio_comp != *cmp_level + 2.0f) {
+        data->ratio_comp = *cmp_level + 2.0f;
+        data->makeup = ((UNITY_LVL - TH_COMP) * (1.0f - 1.0f / data->ratio_comp) - 2.0f);
+    }
+
     // Remove DC offset
-    float tmp = val - data->dc_xm1 + (1.0f - DC_OFFSET_ALPHA) * data->dc_ym1;
-    data->dc_xm1 = val;
-    data->dc_ym1 = tmp;
-    val = tmp;
+    val = dc_blocker(val, (1.0f - TX_DC_BLOCKER_ALPHA), &data->tx_dc_blocker);
 
     // Put val and squared val to buffers
     float squared_val = val * val;
@@ -268,8 +308,13 @@ __attribute__((noinline, optimize("O2"))) float compress(float val) {
 
     data->squared_sum -= ring_buf_get(&data->squared_acc);
     float old_val = ring_buf_get(&data->dline);
-
-    float rms = sqrtf_c(data->squared_sum / DELAY);
+    float rms;
+    float squared_mean = data->squared_sum / DELAY;
+    if (squared_mean >= 0) {
+        rms = sqrtf(squared_mean);
+    } else {
+        rms = 0.0f;
+    }
 
     float rms_db = lin2db(rms);
 
@@ -284,7 +329,7 @@ __attribute__((noinline, optimize("O2"))) float compress(float val) {
 
     // Compute gains
     if (rms_db > TH_COMP) {
-        gain_comp = TH_COMP + (rms_db - TH_COMP) / RATIO_COMP;
+        gain_comp = TH_COMP + (rms_db - TH_COMP) / data->ratio_comp;
     } else if (rms_db < TH_GATE) {
         gain_gate = TH_GATE + (rms_db - TH_GATE) / RATIO_GATE;
         if (rms_db - gain_gate > 40){
@@ -300,7 +345,7 @@ __attribute__((noinline, optimize("O2"))) float compress(float val) {
 
     data->corr = (1 - ATT_ALPHA) * data->corr + ATT_ALPHA * (data->l1_gate + data->l1_comp);
 
-    float corr = -data->corr + MAKEUP;
+    float corr = -data->corr + data->makeup;
 
     old_val *= db2lin(corr);
 
@@ -357,7 +402,14 @@ __attribute__((noinline)) void tx_coeff_calc(float pwr) {
     float *am_carrier_lvl = (float *)0x2000a174;
     float *am_depth_of_mod = (float *)0x2000a178;
     float *fm_depth_of_mod = (float *)0x2000a184;
-    float k = sqrtf_c(pwr / 10.0f);
+    float k;
+    if (pwr >= 0) {
+        // 0.28 - for another HW
+        // k = sqrtf(pwr / 0.28f);
+        k = sqrtf(pwr / 10.0f);
+    } else {
+        k = 1.0f;
+    }
     // set coeffs
     data->tx_p_k_ssb = k;
     data->tx_p_k_cw = k;
@@ -373,4 +425,86 @@ __attribute__((noinline)) void tx_coeff_calc(float pwr) {
 
     // Set FM depth of mod
     *fm_depth_of_mod = 100.0f;
+}
+
+
+/*
+Process AM/FM RX signals
+*/
+
+// __attribute__((optimize("O1"))) void fill_zero_float(float *addr, uint32_t num) {
+//     for (size_t i = 0; i < S->numTaps + 1; i++)
+// }
+
+// from CMSIS-DSP Include/dsp/filtering_functions.h
+/**
+  @brief Instance structure for single precision floating-point FIR decimator.
+ */
+typedef struct
+{
+    uint8_t M;            /**< decimation factor. */
+    uint16_t numTaps;     /**< number of coefficients in the filter. */
+    const float *pCoeffs; /**< points to the coefficient array. The array is of length numTaps.*/
+    float *pState;        /**< points to the state variable array. The array is of length numTaps+blockSize-1. */
+} arm_fir_decimate_instance_f32;
+
+
+/*
+fake fn (will be replaced with actual func address during linking)
+*/
+extern void arm_fill_f32 (float val, float* data, uint32_t size) __attribute__((noinline, section(".arm_fill_f32_sec")));
+
+void arm_fill_f32 (float val, float* data, uint32_t size) {
+    data[size-1] = val;
+    return;
+}
+
+
+/*
+Process AM/FM rx signal after demodulation
+*/
+float am_fm_rx_process(float val, float *i, float *q, uint8_t modulation) {
+    uint8_t *sql = (uint8_t *)SQL_P;
+    data_t *data = (data_t*)DATA_P;
+
+    // Clear val array and fir decim state on change modulation
+    arm_fir_decimate_instance_f32 *S = (arm_fir_decimate_instance_f32*)0x20008e74;
+    float *val_acc = (float *)0x20008fa8;
+
+    if (data->prev_modulation != modulation) {
+        data->prev_modulation = modulation;
+        val_acc[0] = 0.0f;
+        val_acc[1] = 0.0f;
+        arm_fill_f32(0.0f, S->pState, S->numTaps + 2 - 1);
+    }
+
+    switch (modulation)
+    {
+        case MOD_AM:
+            // remove DC offset
+            val = dc_blocker(val, (1.0f - RX_AM_DC_BLOCKER_ALPHA), &data->rx_am_dc_blocker);
+            break;
+        case MOD_NFM:
+            val = dc_blocker(val, (1.0f - RX_FM_DC_BLOCKER_ALPHA), &data->rx_fm_dc_blocker);
+            if (*sql) {
+                data->fm_iq_squared_sum += *i * *i + *q * *q;
+                data->fm_iq_squared_cnt++;
+                if (data->fm_iq_squared_cnt >= 100) {
+                    data->fm_iq_rms_db = lin2db(data->fm_iq_squared_sum / 100.0f) / 2.0f;
+                    data->fm_iq_squared_sum = 0.0f;
+                    data->fm_iq_squared_cnt = 0;
+                }
+                if (data->fm_iq_rms_db > (-110.0f + *sql)) {
+                    data->fm_sql_counter = 3000;
+                } else if (data->fm_sql_counter > 0) {
+                    data->fm_sql_counter--;
+                } else {
+                    val = 0.0f;
+                }
+            }
+            break;
+        default:
+            break;
+    }
+    return val;
 }

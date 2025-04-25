@@ -80,10 +80,21 @@ SECTIONS
   /* The program code and other data goes into FLASH */
   .text :
   {
-    . = . + 380556; /* add padding */
+    /* Set BB functions*/
+    start_text = ABSOLUTE(.);
+    arm_fill_f32_addr = 0x08032dd8;
+    . += arm_fill_f32_addr - start_text;
+    *(.arm_fill_f32_sec)
     . = ALIGN(4);
+
     *(.text)           /* .text sections (code) */
+
+    /* Set new functions with offset for asm code */
+    end_oem_fw = 0x0807df34;
+    . = end_oem_fw - start_text + 64;
+    . = ALIGN(4);
     *(.text*)          /* .text* sections (code) */
+
     *(.glue_7)         /* glue arm to thumb code */
     *(.glue_7t)        /* glue thumb to arm code */
     *(.eh_frame)

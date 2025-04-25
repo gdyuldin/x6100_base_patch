@@ -96,19 +96,20 @@ inline float lin2db(float val) {
 // 0.006 - 2.1W
 // 0.003 - 0.6W
 
-// 0.005 - 2.5
-// 0.007 - 4.5
-// 0.0075 - 5w
-// 0.008 - 5 w
+// 10W
+// ssb
+// 0.007 - 5.2w
+// 0.0097 - 9w
+// 0.0098 - 9.5w
+// 0.01 - 10w
 
-// 1 - 5w
-// 0.4 - 4.8w
-// 0.35 - 4w
-// 0.3 - 3.1w
-// 0.1 - 0.1W
+// AM
+// 0.07 - 2w-7.5w, carrier - 0.0234375, depth - 1.2
+// carrier for 2.5w - 0.026, depth of mod - 0.0817. With default am_depth_of_mod=2.5 - 0.039215999999999994
+// Am signal should be boosted at 3.9215999999999993 (+11.869 db) (without safe interval)
 
 #define OFFSET (-30)
-#define LEVEL (0.35f)
+#define LEVEL (0.07f)
 
 static uint32_t step;
 static uint32_t *step_p = &step;
@@ -158,6 +159,8 @@ __attribute__((noinline, optimize("O1"))) float compress(float val) {
         case 5: // cwr
             return val;
             break;
+        // case 6: // AM
+        //     return 0.0f;
     }
 
     (*step_p)++;
