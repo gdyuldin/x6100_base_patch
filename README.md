@@ -9,6 +9,13 @@ Compiled firmwares might be downloaded at [firmwares](./firmwares/) directory.
 
 ## Changelog:
 
+### r2:
+* Added FM squelch
+* Removes DC offset of demodulated AM/FM
+* Reduces some clicking on mode change. Only FM->AM still remains, not found a way to solve it.
+* Default compression ratio changed to 2:1
+* Added a control for compression ratio and conmpressor on/off (will be in the next R1CBU GUI)
+
 ### r1:
 * Added a compressor with noise gate for TX signals (except DATA and CW).
 * FM modulation depth increased 10 times.

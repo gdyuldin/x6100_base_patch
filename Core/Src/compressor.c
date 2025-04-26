@@ -26,7 +26,8 @@ Compressor values
 
 #define UNITY_LVL -42.0f
 // #define UNITY_LVL -10.0f
-#define NOISE_LVL (UNITY_LVL - 35.0f)
+// #define NOISE_LVL (UNITY_LVL - 35.0f)
+#define NOISE_LVL -80.0f
 
 #define DELAY 60
 #define ATT_ALPHA 0.035957992f
@@ -47,6 +48,10 @@ Limiter
 
 #define LIMITER_MAX_VAL 0.00769f
 
+typedef enum
+{
+    x6100_cmplevel_cmpe = 25,
+} x6100_cmd_enum_t;
 
 enum __attribute__((__packed__)) mod_t {
     MOD_LSB,
@@ -109,17 +114,28 @@ typedef struct {
     /* Debug and pad */
     // tone
     uint32_t tone_step;
-    uint32_t _pat[2];
-} data_t;
+
+} __attribute__ ((aligned (16))) data_t;
 
 #define DATA_P (0x20030000 - sizeof(data_t))
-#define MODULATION_P 0x2000a8cd
-#define CMP_ENABLED_P 0x200000c4
-#define CMP_LEVEL_P 0x200000c3
-#define SQL_P 0x200000a9
+// #define MODULATION_P 0x2000a8cd
+// #define CMP_ENABLED_P 0x200000c4
+// #define CMP_LEVEL_P 0x200000c3
+// #define SQL_P 0x200000a9
 
-static data_t data;
-static data_t *data_p = &data;
+// static data_t data;
+// static data_t *data_p = &data;
+static data_t *data = (data_t*)DATA_P;
+
+static enum mod_t *modulation = (enum mod_t *)0x2000a8cd;
+static uint8_t *cmp_enabled = (uint8_t *)0x200000c4;
+static uint8_t *cmp_level = (uint8_t *)0x200000c3;
+static uint8_t *sql = (uint8_t *)0x200000a9;
+
+
+static uint32_t *i2c_regs = (uint32_t *)0x2000357c;
+
+static uint8_t *tx_flag = (uint8_t *)0x2000a8cf;
 
 /*
 Helper functions
@@ -261,9 +277,6 @@ __attribute__((noinline, optimize("O1"))) float compress(float val) {
 #else
 
 __attribute__((noinline, optimize("O2"))) float compress(float val) {
-    enum mod_t *modulation = (enum mod_t *)MODULATION_P;
-    uint8_t *cmp_enabled = (uint8_t *)CMP_ENABLED_P;
-    uint8_t *cmp_level = (uint8_t *)CMP_LEVEL_P;
     switch (*modulation) {
         // case MOD_LSB:
         case MOD_LSB_D: // lsb-d
@@ -276,6 +289,9 @@ __attribute__((noinline, optimize("O2"))) float compress(float val) {
             break;
     }
 
+    // Remove DC offset
+    val = dc_blocker(val, (1.0f - TX_DC_BLOCKER_ALPHA), &data->tx_dc_blocker);
+
     // Invert (make enabled by default)
     if (*cmp_enabled) {
         if (*modulation == MOD_AM) {
@@ -285,15 +301,13 @@ __attribute__((noinline, optimize("O2"))) float compress(float val) {
     }
 
     // data_t *comp_data = (data_t*)data_p;
-    data_t *data = (data_t*)DATA_P;
+
+    // uint8_t cmp_level_2 = i2c_regs[x6100_cmplevel_cmpe] & 0xf;
 
     if (data->ratio_comp != *cmp_level + 2.0f) {
         data->ratio_comp = *cmp_level + 2.0f;
         data->makeup = ((UNITY_LVL - TH_COMP) * (1.0f - 1.0f / data->ratio_comp) - 2.0f);
     }
-
-    // Remove DC offset
-    val = dc_blocker(val, (1.0f - TX_DC_BLOCKER_ALPHA), &data->tx_dc_blocker);
 
     // Put val and squared val to buffers
     float squared_val = val * val;
@@ -364,8 +378,8 @@ __attribute__((noinline, optimize("O2"))) float compress(float val) {
 Amplify TX IQ signal for TX output power
 */
 __attribute__((noinline)) void tx_amp(float *i, float *q) {
-    data_t *data = (data_t*)DATA_P;
-    enum mod_t *modulation = (enum mod_t *)MODULATION_P;
+    // data_t *data = (data_t*)DATA_P;
+    // enum mod_t *modulation = (enum mod_t *)MODULATION_P;
     float k;
     switch (*modulation)
     {
@@ -398,15 +412,15 @@ __attribute__((noinline)) void tx_amp(float *i, float *q) {
 Set IQ scale on changing TX power
 */
 __attribute__((noinline)) void tx_coeff_calc(float pwr) {
-    data_t *data = (data_t*)DATA_P;
+    // data_t *data = (data_t*)DATA_P;
     float *am_carrier_lvl = (float *)0x2000a174;
     float *am_depth_of_mod = (float *)0x2000a178;
     float *fm_depth_of_mod = (float *)0x2000a184;
     float k;
     if (pwr >= 0) {
         // 0.28 - for another HW
-        // k = sqrtf(pwr / 0.28f);
-        k = sqrtf(pwr / 10.0f);
+        k = sqrtf(pwr / 0.28f);
+        // k = sqrtf(pwr / 10.0f);
     } else {
         k = 1.0f;
     }
@@ -464,8 +478,7 @@ void arm_fill_f32 (float val, float* data, uint32_t size) {
 Process AM/FM rx signal after demodulation
 */
 float am_fm_rx_process(float val, float *i, float *q, uint8_t modulation) {
-    uint8_t *sql = (uint8_t *)SQL_P;
-    data_t *data = (data_t*)DATA_P;
+    // data_t *data = (data_t*)DATA_P;
 
     // Clear val array and fir decim state on change modulation
     arm_fir_decimate_instance_f32 *S = (arm_fir_decimate_instance_f32*)0x20008e74;
