@@ -161,6 +161,8 @@ void Error_Handler(void)
     float a, b;
     tx_amp(&a, &b);
     tx_coeff_calc(a);
+
+    anf_update();
   }
   /* USER CODE END Error_Handler_Debug */
 }

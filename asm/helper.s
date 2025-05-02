@@ -164,3 +164,29 @@ _am_fm_rx_process_wrapper:
 .section .am_fm_rx_process, "ax"
 _am_fm_rx_process:
   nop
+
+
+
+// ANF update block
+/*
+   080251f0 0f f0 bc f8     bl      arm_biquad_cascade_df1_f32          undefined arm_biquad_c
+*/
+
+.section .insert_to_anf_update, "ax"
+_jump_to_anf_update_wrapper:
+  b _anf_update_wrapper
+
+.section .anf_update_wrapper, "ax"
+_anf_update_wrapper:
+  bl 0x0803436c  //call arm_biquad_cascade_df1_f32
+  // save registers
+  push {r2, lr}
+  vpush {s9-s15}
+  bl _anf_update
+  vpop {s9-s15}
+  pop {r2, lr}
+  b _jump_to_anf_update_wrapper + 4
+
+.section .anf_update, "ax"
+_anf_update:
+  nop

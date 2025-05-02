@@ -140,6 +140,8 @@ def main():
     print_used_registers(fn_name="tx_coeff_calc")
     print("Regisers for am_fm_rx_process")
     print_used_registers(fn_name="am_fm_rx_process")
+    print("Regisers for anf_update")
+    print_used_registers(fn_name="anf_update")
 
     # check from ghidra
     start_offset = 0x08020000
@@ -160,6 +162,7 @@ def main():
 
     inject_tx_coeff_calc_addr = 0x080237ae
     inject_am_fm_rx_process_addr = 0x08027de0
+    inject_anf_update_addr = 0x080251f0
 
 
     compress_start, compress_end = get_func_start_end("compress")
@@ -167,6 +170,7 @@ def main():
     tx_amp_start, tx_amp_end = get_func_start_end("tx_amp")
     tx_coeff_calc_start, tx_coeff_calc_end = get_func_start_end("tx_coeff_calc")
     am_fm_rx_process_start, am_fm_rx_process_end = get_func_start_end("am_fm_rx_process")
+    anf_update_start, anf_update_end = get_func_start_end("anf_update")
 
 
     # arm-none-eabi-objdump -S build/Release/CMakeFiles/test_patch.dir/Core/Src/compressor.c.obj
@@ -180,6 +184,7 @@ def main():
     fill_mem_wrapper_len = align(len(get_patched_section(o_file, ".fill_mem_wrapper")))
     tx_amp_wrapper_len = align(len(get_patched_section(o_file, ".tx_amp_wrapper")))
     tx_coeff_calc_wrapper_len = align(len(get_patched_section(o_file, ".tx_coeff_calc_wrapper")))
+    am_fm_rx_process_wrapper_len = align(len(get_patched_section(o_file, ".am_fm_rx_process_wrapper")))
 
     sections = {
         "insert_to_tx_process": inject_comp_addr,
@@ -202,6 +207,11 @@ def main():
         "am_fm_rx_process_wrapper": len(orig_code) + comp_wrapper_len + fill_mem_wrapper_len +
             tx_amp_wrapper_len + tx_coeff_calc_wrapper_len + start_offset,
         "am_fm_rx_process": am_fm_rx_process_start,
+
+        "insert_to_anf_update": inject_anf_update_addr,
+        "anf_update_wrapper": len(orig_code) + comp_wrapper_len + fill_mem_wrapper_len +
+            tx_amp_wrapper_len + tx_coeff_calc_wrapper_len + am_fm_rx_process_wrapper_len + start_offset,
+        "anf_update": anf_update_start,
     }
 
     link_patch_helper(o_file, elf, start_offset, **sections)
@@ -216,13 +226,19 @@ def main():
     assert len(insert_to_tx_coeff_calc_code) == 4
     insert_to_am_fm_rx_process_code = get_patched_section(elf, ".insert_to_am_fm_rx_process")
     assert len(insert_to_am_fm_rx_process_code) == 4
+    insert_to_anf_update_code = get_patched_section(elf, ".insert_to_anf_update")
+    assert len(insert_to_anf_update_code) == 4
 
     # comp_wrapper_code = get_patched_section(elf, ".comp_wrapper")
     # fill_mem_wrapper_code = get_patched_section(elf, ".fill_mem_wrapper")
 
     # assert len(comp_wrapper_code) + len(orig_code) + start_offset < min(compress_start, fill_mem_start)
 
-    dst = bytearray(max(compress_end, fill_mem_end, tx_amp_end, tx_coeff_calc_end, am_fm_rx_process_end) - start_offset)
+    dst = bytearray(
+        max(
+            compress_end, fill_mem_end, tx_amp_end, tx_coeff_calc_end,
+            am_fm_rx_process_end, anf_update_end
+        ) - start_offset)
     # Copy original code
     dst[:len(orig_code)] = orig_code
 
@@ -233,6 +249,7 @@ def main():
             (tx_amp_start, tx_amp_end),
             (tx_coeff_calc_start, tx_coeff_calc_end),
             (am_fm_rx_process_start, am_fm_rx_process_end),
+            (anf_update_start, anf_update_end),
         ]:
         start = start - start_offset
         end = end - start_offset
@@ -247,7 +264,8 @@ def main():
         dst[offset: offset + 4] = np.uint32(stack_new_p).tobytes()
 
     # copy wrappers
-    for sec_name in ("comp_wrapper", "fill_mem_wrapper", "tx_amp_wrapper", "tx_coeff_calc_wrapper", "am_fm_rx_process_wrapper"):
+    for sec_name in ("comp_wrapper", "fill_mem_wrapper", "tx_amp_wrapper",
+                     "tx_coeff_calc_wrapper", "am_fm_rx_process_wrapper", "anf_update_wrapper"):
         start = sections[sec_name] - start_offset
         code = get_patched_section(elf, f".{sec_name}")
         end = start + len(code)
@@ -260,17 +278,18 @@ def main():
             ("insert_to_tx_amp", "tx_amp_wrapper"),
             ("insert_to_tx_coeff_calc", "tx_coeff_calc_wrapper"),
             ("insert_to_am_fm_rx_process", "am_fm_rx_process_wrapper"),
+            ("insert_to_anf_update", "anf_update_wrapper"),
         ):
         from_offset = sections[from_sec_name] - start_offset
         to_offset = sections[to_sec_name] - start_offset
         jump_code = get_patched_section(elf, f".{from_sec_name}")
 
         # Copy instructions
-        if to_sec_name not in ("fill_mem_wrapper", "tx_amp_wrapper", "tx_coeff_calc_wrapper", "am_fm_rx_process_wrapper"):
+        if to_sec_name == "comp_wrapper":
             dst[to_offset: to_offset + 4] = dst[from_offset: from_offset + 4]
         dst[from_offset: from_offset + 4] = jump_code
 
-    ver = "r2"
+    ver = "r3"
     build_time = ver.encode() + bytes(11 - len(ver))
     assert len(build_time) < 12
     build_time_addr = 0x0803b204 - start_offset

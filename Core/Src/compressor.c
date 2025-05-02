@@ -1,6 +1,7 @@
 #include "compressor.h"
 
 #include "math.h"
+#include "stdbool.h"
 #include "stdint.h"
 #include "log10f.c"
 #include "powf.c"
@@ -419,8 +420,8 @@ __attribute__((noinline)) void tx_coeff_calc(float pwr) {
     float k;
     if (pwr >= 0) {
         // 0.28 - for another HW
-        k = sqrtf(pwr / 0.28f);
-        // k = sqrtf(pwr / 10.0f);
+        // k = sqrtf(pwr / 0.28f);
+        k = sqrtf(pwr / 10.0f);
     } else {
         k = 1.0f;
     }
@@ -520,4 +521,62 @@ float am_fm_rx_process(float val, float *i, float *q, uint8_t modulation) {
             break;
     }
     return val;
+}
+
+
+/**
+ * Adaptive notch filter
+ */
+
+/**
+ * @brief Instance structure for the floating-point Biquad cascade filter.
+ */
+typedef struct
+{
+    uint32_t numStages;   /**< number of 2nd order stages in the filter.  Overall order is 2*numStages. */
+
+    // {x[n-1], x[n-2], y[n-1], y[n-2]}
+    float *pState;        /**< Points to the array of state coefficients.  The array is of length 4*numStages. */
+
+    // {b10, b11, b12, a11, a12, b20, b21, b22, a21, a22, ...}
+    float *pCoeffs; /**< Points to the array of coefficients.  The array is of length 5*numStages. */
+} arm_biquad_casd_df1_inst_f32;
+
+
+void anf_update() {
+    arm_biquad_casd_df1_inst_f32 *flt = (arm_biquad_casd_df1_inst_f32 *)0x2000d994;
+    const float k = 0.05f;
+    bool anf = true;
+    if (anf) {
+        float width = 100.0f;
+        // estimate_an
+        // r = -self.a[2] / self.b[0]
+        float r = -flt->pCoeffs[4] / flt->pCoeffs[0];
+        // an = -self.b[1] / self.b[0]
+        float an = -flt->pCoeffs[1] / flt->pCoeffs[0];
+        // gradient = self.y_h[-1] * (r * self.y_h[-2] - self.x_h[-2])
+        float gradient = flt->pState[2] * (r * flt->pState[3] - flt->pState[1]);
+        // new_an = an - k * gradient
+        an = an - k * gradient;
+        an = MIN(2.0f, an);
+        an = MAX(-2.0f, an);
+
+        // update_coeffs
+
+        // sin_w = (1 - an / 2) ** 0.5
+        float sin_w = sqrtf(1.0f - an / 2);
+
+        // r = sin_w * self.width / 200
+        r = sin_w * width / 200.0f;
+
+        // delta = 1 / (1 + r)
+        float delta = 1 / (1 + r);
+
+        flt->pCoeffs[0] = delta;
+        flt->pCoeffs[1] = -an * delta;
+        flt->pCoeffs[2] = delta;
+
+        flt->pCoeffs[3] = -flt->pCoeffs[1];
+        flt->pCoeffs[4] = (r - 1.0f) * delta;
+    }
 }
