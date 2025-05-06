@@ -16,7 +16,7 @@ import numpy as np
 prog_name = "x6100_mcu"
 
 
-def compile_pathch_helper(asm, o_file):
+def compile_patch_helper(asm, o_file):
     cmd = f"arm-none-eabi-as {asm} -o {o_file}"
     print("Call:", cmd)
     subprocess.check_call(shlex.split(cmd))
@@ -69,11 +69,11 @@ def get_comp_struct_addr_p(placeholder=b"deadbeef"):
     return addr
 
 
-def get_func_start_end(name):
+def get_block_start_end(name, section_prefix="text"):
     with open(f"build/Release/{prog_name}.map") as f:
         while True:
             line = next(f)
-            if line.strip().startswith(f".text.{name}"):
+            if line.strip().startswith(f".{section_prefix}.{name}"):
                 if len(line.split()) == 1:
                     line = next(f)
                 else:
@@ -81,7 +81,7 @@ def get_func_start_end(name):
                 parts = line.split()
                 start_addr = int(parts[0], 16)
                 end_addr = start_addr + int(parts[1], 16)
-                print(f"func {name} start: {start_addr:x}, end: {end_addr:x}, len: {(end_addr - start_addr):x}")
+                print(f".{section_prefix}.{name} start: {start_addr:x}, end: {end_addr:x}, len: {(end_addr - start_addr):x}")
                 return start_addr, end_addr
 
 def align(addr, val=4):
@@ -125,180 +125,144 @@ def print_used_registers(fn_name="compress"):
     for k, l in registers:
         print(k, l)
 
+
+class InjectFunction:
+    def __init__(self, name, inject_addr, copy_replaced=False):
+        self.name = name
+        self.inject_addr = inject_addr
+        self.copy_replaced = copy_replaced
+        self.start_addr, self.end_addr = get_block_start_end(name)
+        self.wrapper_len = 0
+        self.insert_code = b""
+
+    def setup_wrapper_len(self, asm_o_file):
+        self.wrapper_len = align(len(get_patched_section(asm_o_file, f".{self.name}_wrapper")))
+
+    def print_used_registers(self):
+        print(f"Registers for {self.name}")
+        print_used_registers(fn_name=self.name)
+
+    def setup_insert_code(self, asm_elf):
+        self.insert_code = get_patched_section(asm_elf, f".insert_to_{self.name}")
+        assert len(self.insert_code) == 4, f"{self.name} insert is not 4 bytes"
+
+
+class InjectFunctions:
+    def __init__(self, functions: list[InjectFunction], asm_o_file, flash_offset, orig_fw_size) -> None:
+        self.functions = functions
+        self.flash_offset = flash_offset
+        self.sections = {}
+        self.new_code_end = 0
+        accumulated_size = 0
+        for fn in self.functions:
+            fn.setup_wrapper_len(asm_o_file)
+            fn.print_used_registers()
+            self.sections.update({
+                f"insert_to_{fn.name}": fn.inject_addr,
+                f"{fn.name}_wrapper": orig_fw_size + flash_offset + accumulated_size,
+                fn.name: fn.start_addr,
+            })
+            accumulated_size += fn.wrapper_len
+            self.new_code_end = max(self.new_code_end, fn.end_addr)
+        # perhaps, add rodata to self code end
+
+    def setup_insert_code(self, asm_elf):
+        for fn in self.functions:
+            fn.setup_insert_code(asm_elf)
+
+    def copy_code(self, src: bytes, dst: bytearray):
+        for fn in self.functions:
+            start = fn.start_addr - self.flash_offset
+            end = fn.end_addr - self.flash_offset
+            dst[start: end] = src[start: end]
+
+    def copy_wrappers(self, asm_elf, dst: bytearray):
+        for fn in self.functions:
+            sec_name = f"{fn.name}_wrapper"
+            start = self.sections[sec_name] - self.flash_offset
+            code = get_patched_section(asm_elf, f".{sec_name}")
+            end = start + len(code)
+            dst[start: end] = code
+
+    def insert_jumps(self, dst: bytearray):
+        for fn in self.functions:
+            from_sec_name = f"insert_to_{fn.name}"
+            to_sec_name = f"{fn.name}_wrapper"
+            from_offset = self.sections[from_sec_name] - self.flash_offset
+            to_offset = self.sections[to_sec_name] - self.flash_offset
+
+            # Copy instructions
+            if fn.copy_replaced:
+                dst[to_offset: to_offset + 4] = dst[from_offset: from_offset + 4]
+            dst[from_offset: from_offset + 4] = fn.insert_code
+
+
 def main():
     with open("firmwares/X6100_BBFW_V1.1.6_221112001_p160.bin", "rb") as f:
         orig_code = f.read()
     with open(f"build/Release/{prog_name}.bin", "rb") as f:
         patched_code = f.read()
 
-    # get used registers
-    print("Regisers for compress")
-    print_used_registers(fn_name="compress")
-    print("Regisers for tx_amp")
-    print_used_registers(fn_name="tx_amp")
-    print("Regisers for tx_coeff_calc")
-    print_used_registers(fn_name="tx_coeff_calc")
-    print("Regisers for am_fm_rx_process")
-    print_used_registers(fn_name="am_fm_rx_process")
-    print("Regisers for anf_update")
-    print_used_registers(fn_name="anf_update")
-
     # check from ghidra
-    start_offset = 0x08020000
+    flash_offset = 0x08020000
 
     # value from reset_handler and first 4 bytes from firmware
     stack_p_addr = 0x20030000
-    stack_p_0 = start_offset
+    stack_p_0 = flash_offset
     stack_p_1 = 0x08032dbc
-    # 592 is a len of struct for compressor
-    stack_new_p = stack_p_addr - 592
-
-    # somewhere within process
-    inject_comp_addr = 0x08024b06
-    # somewhere at begin of reset_handler
-    inject_mem_addr  = 0x08032dae
-
-    inject_tx_amp_addr = 0x08024b6e
-
-    inject_tx_coeff_calc_addr = 0x080237ae
-    inject_am_fm_rx_process_addr = 0x08027de0
-    inject_anf_update_addr = 0x080251f0
-
-
-    compress_start, compress_end = get_func_start_end("compress")
-    fill_mem_start, fill_mem_end = get_func_start_end("fill_zero")
-    tx_amp_start, tx_amp_end = get_func_start_end("tx_amp")
-    tx_coeff_calc_start, tx_coeff_calc_end = get_func_start_end("tx_coeff_calc")
-    am_fm_rx_process_start, am_fm_rx_process_end = get_func_start_end("am_fm_rx_process")
-    anf_update_start, anf_update_end = get_func_start_end("anf_update")
-
+    # 608 is a len of data struct for injected functions
+    stack_new_p = stack_p_addr - 608
 
     # arm-none-eabi-objdump -S build/Release/CMakeFiles/test_patch.dir/Core/Src/compressor.c.obj
 
     asm = "asm/helper.s"
     o_file = "asm/helper.o"
+    compile_patch_helper(asm, o_file)
+
+    functions = InjectFunctions([
+        InjectFunction("init_data", 0x08032dae),  # fill ram area with zeros
+        InjectFunction("configure", 0x08023c14),  # configure state at start of DMA handler
+        InjectFunction("compress", 0x08024b06, copy_replaced=True),  # compress, limit TX signal
+        InjectFunction("tx_amp", 0x08024b6e),  # amp IQ according to configured TX power
+        InjectFunction("tx_coeff_calc", 0x080237ae),  # update coefficients for IQ on TX power change
+        InjectFunction("am_fm_rx_process", 0x08027de0),  # process AM/FM rx (sql, dc blocker)
+        InjectFunction("anf_update", 0x080251f0),  # update notch filter params
+    ], asm_o_file=o_file, flash_offset=flash_offset, orig_fw_size=len(orig_code))
+
+    # rodata_start, rodata_end = get_block_start_end("sin_100", "rodata")
+
     elf = "asm/helper.elf"
-    compile_pathch_helper(asm, o_file)
+    link_patch_helper(o_file, elf, flash_offset, **functions.sections)
 
-    comp_wrapper_len = align(len(get_patched_section(o_file, ".comp_wrapper")))
-    fill_mem_wrapper_len = align(len(get_patched_section(o_file, ".fill_mem_wrapper")))
-    tx_amp_wrapper_len = align(len(get_patched_section(o_file, ".tx_amp_wrapper")))
-    tx_coeff_calc_wrapper_len = align(len(get_patched_section(o_file, ".tx_coeff_calc_wrapper")))
-    am_fm_rx_process_wrapper_len = align(len(get_patched_section(o_file, ".am_fm_rx_process_wrapper")))
+    functions.setup_insert_code(elf)
 
-    sections = {
-        "insert_to_tx_process": inject_comp_addr,
-        "comp_wrapper": len(orig_code) + start_offset,
-        "compressor": compress_start,
 
-        "insert_to_reset_handler": inject_mem_addr,
-        "fill_mem_wrapper": len(orig_code) + comp_wrapper_len + start_offset,
-        "fill_mem": fill_mem_start,
-
-        "insert_to_tx_amp": inject_tx_amp_addr,
-        "tx_amp_wrapper": len(orig_code) + comp_wrapper_len + fill_mem_wrapper_len + start_offset,
-        "tx_amp": tx_amp_start,
-
-        "insert_to_tx_coeff_calc": inject_tx_coeff_calc_addr,
-        "tx_coeff_calc_wrapper": len(orig_code) + comp_wrapper_len + fill_mem_wrapper_len + tx_amp_wrapper_len + start_offset,
-        "tx_coeff_calc": tx_coeff_calc_start,
-
-        "insert_to_am_fm_rx_process": inject_am_fm_rx_process_addr,
-        "am_fm_rx_process_wrapper": len(orig_code) + comp_wrapper_len + fill_mem_wrapper_len +
-            tx_amp_wrapper_len + tx_coeff_calc_wrapper_len + start_offset,
-        "am_fm_rx_process": am_fm_rx_process_start,
-
-        "insert_to_anf_update": inject_anf_update_addr,
-        "anf_update_wrapper": len(orig_code) + comp_wrapper_len + fill_mem_wrapper_len +
-            tx_amp_wrapper_len + tx_coeff_calc_wrapper_len + am_fm_rx_process_wrapper_len + start_offset,
-        "anf_update": anf_update_start,
-    }
-
-    link_patch_helper(o_file, elf, start_offset, **sections)
-
-    insert_to_tx_code = get_patched_section(elf, ".insert_to_tx_process")
-    assert len(insert_to_tx_code) == 4
-    insert_to_reset_handler_code = get_patched_section(elf, ".insert_to_reset_handler")
-    assert len(insert_to_reset_handler_code) == 4
-    insert_to_tx_amp_code = get_patched_section(elf, ".insert_to_tx_amp")
-    assert len(insert_to_tx_amp_code) == 4
-    insert_to_tx_coeff_calc_code = get_patched_section(elf, ".insert_to_tx_coeff_calc")
-    assert len(insert_to_tx_coeff_calc_code) == 4
-    insert_to_am_fm_rx_process_code = get_patched_section(elf, ".insert_to_am_fm_rx_process")
-    assert len(insert_to_am_fm_rx_process_code) == 4
-    insert_to_anf_update_code = get_patched_section(elf, ".insert_to_anf_update")
-    assert len(insert_to_anf_update_code) == 4
-
-    # comp_wrapper_code = get_patched_section(elf, ".comp_wrapper")
-    # fill_mem_wrapper_code = get_patched_section(elf, ".fill_mem_wrapper")
-
-    # assert len(comp_wrapper_code) + len(orig_code) + start_offset < min(compress_start, fill_mem_start)
-
-    dst = bytearray(
-        max(
-            compress_end, fill_mem_end, tx_amp_end, tx_coeff_calc_end,
-            am_fm_rx_process_end, anf_update_end
-        ) - start_offset)
+    dst = bytearray(functions.new_code_end - flash_offset)
     # Copy original code
     dst[:len(orig_code)] = orig_code
 
-    # copy new_block
-    for start, end in [
-            (compress_start, compress_end),
-            (fill_mem_start, fill_mem_end),
-            (tx_amp_start, tx_amp_end),
-            (tx_coeff_calc_start, tx_coeff_calc_end),
-            (am_fm_rx_process_start, am_fm_rx_process_end),
-            (anf_update_start, anf_update_end),
-        ]:
-        start = start - start_offset
-        end = end - start_offset
-        dst[start: end] = patched_code[start: end]
-
-    # update function static var addr
-    # dst[compress_struct_p_addr - start_offset: compress_struct_p_addr - start_offset + 4] = np.uint32(stack_new_p).tobytes()
+    # copy new_blocks
+    functions.copy_code(patched_code, dst)
 
     #update stack pointers
     for stack_p in (stack_p_0, stack_p_1):
-        offset = stack_p - start_offset
+        offset = stack_p - flash_offset
         dst[offset: offset + 4] = np.uint32(stack_new_p).tobytes()
 
     # copy wrappers
-    for sec_name in ("comp_wrapper", "fill_mem_wrapper", "tx_amp_wrapper",
-                     "tx_coeff_calc_wrapper", "am_fm_rx_process_wrapper", "anf_update_wrapper"):
-        start = sections[sec_name] - start_offset
-        code = get_patched_section(elf, f".{sec_name}")
-        end = start + len(code)
-        dst[start: end] = code
+    functions.copy_wrappers(elf, dst)
 
     # insert jumps
-    for from_sec_name, to_sec_name in (
-            ("insert_to_tx_process", "comp_wrapper"),
-            ("insert_to_reset_handler", "fill_mem_wrapper"),
-            ("insert_to_tx_amp", "tx_amp_wrapper"),
-            ("insert_to_tx_coeff_calc", "tx_coeff_calc_wrapper"),
-            ("insert_to_am_fm_rx_process", "am_fm_rx_process_wrapper"),
-            ("insert_to_anf_update", "anf_update_wrapper"),
-        ):
-        from_offset = sections[from_sec_name] - start_offset
-        to_offset = sections[to_sec_name] - start_offset
-        jump_code = get_patched_section(elf, f".{from_sec_name}")
-
-        # Copy instructions
-        if to_sec_name == "comp_wrapper":
-            dst[to_offset: to_offset + 4] = dst[from_offset: from_offset + 4]
-        dst[from_offset: from_offset + 4] = jump_code
+    functions.insert_jumps(dst)
 
     ver = "r3"
     build_time = ver.encode() + bytes(11 - len(ver))
     assert len(build_time) < 12
-    build_time_addr = 0x0803b204 - start_offset
-    dst[build_time_addr: build_time_addr+len(build_time)] = build_time
+    build_time_addr = 0x0803b204 - flash_offset
+    dst[build_time_addr: build_time_addr + len(build_time)] = build_time
 
     with open(f"firmwares/X6100_BBFW_V1.1.6_221112001_{ver}.bin", "wb") as f:
         f.write(dst)
-
-
 
 
 if __name__ == "__main__":

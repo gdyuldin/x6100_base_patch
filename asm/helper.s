@@ -15,15 +15,44 @@
 
 */
 
+/*
+*** Configuration block ***
+
+  At begin of the DMA stream handler
+
+   08023c14 09 f0 10 fa     bl      0x0802d038, DMA_ClearITPendingBit(&Peripherals::DMA1_Stream3,0x18008000)
+   args - r0, r1
+*/
+
+.section .insert_to_configure, "ax"
+_jump_to_configure_wrapper:
+  b _configure_wrapper
+
+.section .configure_wrapper, "ax"
+_configure_wrapper:
+  bl 0x0802d038  //call DMA_ClearITPendingBit
+  // save registers
+  push {r1-r3, lr}
+  vpush {s8-s15}
+  bl _configure
+  vpop {s8-s15}
+  pop {r1-r3, lr}
+  b _jump_to_configure_wrapper + 4
+
+.section .configure, "ax"
+_configure:
+  nop
+
+
 // Compressor block
 
-.section .insert_to_tx_process,"ax"
-_jump_to_comp:
-  b _comp_wrapper
+.section .insert_to_compress,"ax"
+_jump_to_compress:
+  b _compress_wrapper
 
 
-.section .comp_wrapper,"ax"
-_comp_wrapper:
+.section .compress_wrapper,"ax"
+_compress_wrapper:
     // bl 0x08035ce0  // arm_fir_decimate_f32
     nop
     nop
@@ -33,34 +62,34 @@ _comp_wrapper:
     push {r0-r4, lr}
     vpush {s1-s15}
 
-    bl _compressor
+    bl _compress
 
     vpop {s1-s15}
     pop {r0-r4, lr}
     vstr s0, [r1]
 
-    b _jump_to_comp + 4
+    b _jump_to_compress + 4
 
-.section .compressor, "ax"
-_compressor:
+.section .compress, "ax"
+_compress:
     nop
 
 
-// Fill mem block
+// Init data block (fill mem with zeros)
 
-.section .insert_to_reset_handler,"ax"
-_jump_to_fill_mem:
-  b _fill_mem_wrapper
+.section .insert_to_init_data,"ax"
+_jump_to_init_data:
+  b _init_data_wrapper
 
 
-.section .fill_mem_wrapper, "ax"
-_fill_mem_wrapper:
+.section .init_data_wrapper, "ax"
+_init_data_wrapper:
   bl 0x08032bf8  // from orig code, SystemInit
-  bl _fill_mem
-  b _jump_to_fill_mem + 4
+  bl _init_data
+  b _jump_to_init_data + 4
 
-.section .fill_mem, "ax"
-_fill_mem:
+.section .init_data, "ax"
+_init_data:
   nop
 
 
@@ -180,11 +209,11 @@ _jump_to_anf_update_wrapper:
 _anf_update_wrapper:
   bl 0x0803436c  //call arm_biquad_cascade_df1_f32
   // save registers
-  push {r2, lr}
-  vpush {s9-s15}
+  push {r2, r3, lr}
+  vpush {s10-s15}
   bl _anf_update
-  vpop {s9-s15}
-  pop {r2, lr}
+  vpop {s10-s15}
+  pop {r2, r3, lr}
   b _jump_to_anf_update_wrapper + 4
 
 .section .anf_update, "ax"

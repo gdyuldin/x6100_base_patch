@@ -83,8 +83,11 @@ SECTIONS
     /* Set BB functions*/
     start_text = ABSOLUTE(.);
     arm_fill_f32_addr = 0x08032dd8;
+    arm_biquad_cascade_df1_f32_addr = 0x0803436c;
     . += arm_fill_f32_addr - start_text;
     *(.arm_fill_f32_sec)
+    . = arm_biquad_cascade_df1_f32_addr - start_text;
+    *(.arm_biquad_cascade_df1_f32_sec)
     . = ALIGN(4);
 
     *(.text)           /* .text sections (code) */
