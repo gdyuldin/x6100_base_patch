@@ -68,6 +68,7 @@ int main(void)
   compress(2.0f);
   am_fm_rx_process(NULL, NULL, NULL);
   configure();
+  am_mod(0.0f, NULL, NULL);
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/

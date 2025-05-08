@@ -30,7 +30,7 @@ Compressor values
 // #define NOISE_LVL (UNITY_LVL - 35.0f)
 #define NOISE_LVL -80.0f
 
-#define DELAY 60
+#define COMP_DELAY 60
 #define ATT_ALPHA 0.035957992f
 #define RELEASE_ALPHA 0.00061015395f
 #define RATIO_GATE 0.25f
@@ -49,6 +49,7 @@ Limiter
 
 typedef enum
 {
+    x6100_rfg_txpwr = 15,
     x6100_dnfcnt_dnfwidth_dnfe = 24,
     x6100_cmplevel_cmpe = 25,
 } x6100_cmd_enum_t;
@@ -65,9 +66,10 @@ enum __attribute__((__packed__)) mod_t {
 };
 
 struct ring_buf {
-    float data[DELAY];
+    float *data;
     uint32_t w;
     uint32_t r;
+    uint32_t size;
 };
 
 
@@ -87,7 +89,9 @@ typedef struct {
         float l1_gate;
         float corr;
         struct ring_buf dline;
+        float dline_data[COMP_DELAY];
         struct ring_buf squared_acc;
+        float squared_acc_data[COMP_DELAY];
         float squared_sum;
 
         uint32_t i2c_reg_val;
@@ -96,12 +100,18 @@ typedef struct {
     struct dc_blocker_t tx_dc_blocker;
 
     struct {
+        uint8_t pos;
+    } am_mod;
+
+    struct {
         /* TX level control data */
         // tx amp coeffs
         float ssb;
         float cw;
         float am;
         float fm;
+
+        uint32_t i2c_pwr_reg;
     } tx_amp_coeffs;
 
     /* AM/FM RX processing data */
@@ -128,6 +138,7 @@ typedef struct {
         uint32_t i2c_reg_val;
     } anf;
 
+    uint8_t tx_flag;
     /* Debug and pad */
     // tone
     uint32_t tone_step;
@@ -145,8 +156,12 @@ static uint8_t *sql = (uint8_t *)0x200000a9;
 
 
 static uint32_t *i2c_regs = (uint32_t *)0x2000357c;
+// static uint32_t *i2c_regs_from_12 = (uint32_t *)0x2000dd7c;
 
 static uint8_t *tx_flag = (uint8_t *)0x2000a8cf;
+
+__attribute__((noinline)) void tx_coeff_calc(float pwr);
+extern void arm_fill_f32 (float val, float* data, uint32_t size) __attribute__((noinline, section(".arm_fill_f32_sec")));
 
 /*
 Helper functions
@@ -166,7 +181,7 @@ Operate with buffer
 
 void ring_buf_put(struct ring_buf *buf, float val) {
     buf->data[buf->w] = val;
-    if (buf->w == DELAY - 1) {
+    if (buf->w == buf->size - 1) {
         buf->w = 0;
     } else {
         buf->w++;
@@ -175,7 +190,7 @@ void ring_buf_put(struct ring_buf *buf, float val) {
 
 float ring_buf_get(struct ring_buf *buf) {
     float val = buf->data[buf->r];
-    if (buf->r == DELAY - 1) {
+    if (buf->r == buf->size - 1) {
         buf->r = 0;
     } else {
         buf->r++;
@@ -185,6 +200,11 @@ float ring_buf_get(struct ring_buf *buf) {
 
 uint8_t ring_buf_full(struct ring_buf *buf) {
     return buf->w == buf->r;
+}
+
+void ring_buf_reset(struct ring_buf *buf) {
+    buf->w = 0;
+    buf->r = 0;
 }
 
 /*
@@ -198,6 +218,10 @@ __attribute__((optimize("O1"))) void init_data(void) {
     for (;area_start < area_end; area_start++) {
         *area_start = 0;
     }
+    data->comp.dline.data = data->comp.dline_data;
+    data->comp.dline.size = sizeof(data->comp.dline_data) / sizeof(*data->comp.dline_data);
+    data->comp.squared_acc.data = data->comp.squared_acc_data;
+    data->comp.squared_acc.size = sizeof(data->comp.squared_acc_data) / sizeof(*data->comp.squared_acc_data);
 }
 
 /*
@@ -232,10 +256,10 @@ Configuration
 */
 
 void update_comp_params() {
-    if (i2c_regs[x6100_cmplevel_cmpe] != data->comp.i2c_reg_val) {
+    if ((i2c_regs[x6100_cmplevel_cmpe] != data->comp.i2c_reg_val) || (data->comp.ratio_comp == 0.0f)) {
         data->comp.i2c_reg_val = i2c_regs[x6100_cmplevel_cmpe];
-        float makeup_offset = ((int8_t)(data->comp.i2c_reg_val >> 9) & 0xFC) / 8.0f;
-        float threshold_offset = ((int8_t)(data->comp.i2c_reg_val >> 3) & 0xFC) / 8.0f;
+        float threshold_offset = (int8_t)((data->comp.i2c_reg_val >> 3) & 0xFC) * 0.125f;
+        float makeup_offset = (int8_t)((data->comp.i2c_reg_val >> 9) & 0xFC) * 0.125f;
 
         // ratio configured with -2 offset: 0 -> 2:1, 1 -> 3:1
         data->comp.ratio_comp = *cmp_level + 2.0f;
@@ -254,6 +278,17 @@ void update_anf_params() {
 void configure() {
     update_comp_params();
     update_anf_params();
+    if (i2c_regs[x6100_rfg_txpwr] != data->tx_amp_coeffs.i2c_pwr_reg) {
+        data->tx_amp_coeffs.i2c_pwr_reg = i2c_regs[x6100_rfg_txpwr];
+        float pwr = (uint8_t)(data->tx_amp_coeffs.i2c_pwr_reg >> 8) * 0.1f;
+        tx_coeff_calc(pwr);
+    }
+    if (data->tx_flag != *tx_flag) {
+        data->tx_flag = *tx_flag;
+        if (data->tx_flag)
+        ring_buf_reset(&data->comp.dline);
+    }
+    // reset compressor
 }
 
 
@@ -267,16 +302,22 @@ __attribute__((noinline)) void tx_coeff_calc(float pwr) {
     float *fm_depth_of_mod = (float *)0x2000a184;
     float k;
     if (pwr >= 0) {
-        // 0.28 - for another HW
-        // k = sqrtf(pwr / 0.28f);
-        k = sqrtf(pwr / 10.0f);
+        float output_gain_offset = (int8_t)(i2c_regs[x6100_rfg_txpwr] >> 16) * 0.2f;
+        float full_output_pwr = db2lin(-output_gain_offset * 2) * 10.0f;
+        float pow_scale = pwr / full_output_pwr;
+        if (pow_scale <= 0.0f) {
+            k = 1.0f;
+        } else {
+            k = sqrtf(pow_scale);
+        }
     } else {
         k = 1.0f;
     }
     // set coeffs
     data->tx_amp_coeffs.ssb = k;
     data->tx_amp_coeffs.cw = k;
-    data->tx_amp_coeffs.fm = 7.6e-2f * k;
+    // data->tx_amp_coeffs.fm = 7.6e-2f * k;
+    data->tx_amp_coeffs.fm = 8.7e-2f * k;
 
     // for 2.5 w carrier at 10w output
     // *am_carrier_lvl = 0.025f * k;
@@ -392,7 +433,7 @@ __attribute__((noinline, optimize("O2"))) float compress(float val) {
     data->comp.squared_sum -= ring_buf_get(&data->comp.squared_acc);
     float old_val = ring_buf_get(&data->comp.dline);
     float rms;
-    float squared_mean = data->comp.squared_sum / DELAY;
+    float squared_mean = data->comp.squared_sum / data->comp.squared_acc.size;
     if (squared_mean >= 0) {
         rms = sqrtf(squared_mean);
     } else {
@@ -415,8 +456,8 @@ __attribute__((noinline, optimize("O2"))) float compress(float val) {
         gain_comp = data->comp.threshold + (rms_db - data->comp.threshold) / data->comp.ratio_comp;
     } else {
         gain_gate = data->comp.threshold + (rms_db - data->comp.threshold) / RATIO_GATE;
-        if (rms_db - gain_gate > 40){
-            gain_gate = rms_db - 40;
+        if (rms_db - gain_gate > 40.0f){
+            gain_gate = rms_db - 40.0f;
         }
     }
 
@@ -441,6 +482,27 @@ __attribute__((noinline, optimize("O2"))) float compress(float val) {
 }
 
 #endif
+
+/**
+ * AM shifted modulation
+ */
+
+__attribute__((noinline)) void am_mod(float signal, float *iq_before_mul, float *qi) {
+    const uint8_t data_size = sizeof(sin_100) / sizeof(*sin_100);
+    data->am_mod.pos++;
+    if (data->am_mod.pos >= data_size) {
+        data->am_mod.pos = 0;
+    }
+    uint8_t sin_pos = data->am_mod.pos;
+    uint8_t cos_pos = sin_pos + data_size / 4;
+    if (cos_pos >= data_size) {
+        cos_pos -= data_size;
+    }
+    iq_before_mul[0] = sin_100[cos_pos];
+    iq_before_mul[1] = sin_100[sin_pos];
+    qi[0] = iq_before_mul[1] * 8.0f;
+    qi[1] = iq_before_mul[0] * 8.0f;
+}
 
 
 /*
@@ -495,8 +557,6 @@ typedef struct
 /*
 fake fn (will be replaced with actual func address during linking)
 */
-extern void arm_fill_f32 (float val, float* data, uint32_t size) __attribute__((noinline, section(".arm_fill_f32_sec")));
-
 void arm_fill_f32 (float val, float* data, uint32_t size) {
     data[size-1] = val;
     return;

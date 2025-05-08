@@ -59,13 +59,13 @@ _compress_wrapper:
     // bl 0x0803436c  // arm_biquad_cascade_df1_f32
     // vldr.32 s0, [sp, #0x58]  // sp+0x58  tx_audio
     vldr s0, [r1]
-    push {r0-r4, lr}
+    push {r0-r5, lr}
     vpush {s1-s15}
 
     bl _compress
 
     vpop {s1-s15}
-    pop {r0-r4, lr}
+    pop {r0-r5, lr}
     vstr s0, [r1]
 
     b _jump_to_compress + 4
@@ -147,9 +147,9 @@ _jump_to_tx_coeff_calc_wrapper:
 _tx_coeff_calc_wrapper:
   vstr.32 s0, [r2]  // from original code
   push {r1-r3, lr}
-  vpush {s11-s15}
+  vpush {s2-s15}
   bl _tx_coeff_calc
-  vpop {s11-s15}
+  vpop {s2-s15}
   pop {r1-r3, lr}
   b _jump_to_tx_coeff_calc_wrapper + 4
 
@@ -218,4 +218,47 @@ _anf_update_wrapper:
 
 .section .anf_update, "ax"
 _anf_update:
+  nop
+
+// AM modulation
+
+/*
+   08027a4a a7 ee a6 7a     vfma.   am_mod,signal,scale (s13 + s14 * s15 -> s14)
+   08027a4e f0 ee 47 7a     vmov.   q_int_tx,i_tx_int (s14 -> s15)
+   08027a52 b2 ee 00 7a     vmov.   i_tx_int,0x41000000 (8.0 -> s14)
+   08027a56 27 ee 87 7a     vmul.   i_tx_int,q_int_tx,i_tx_int (s14 * s15 -> s14)
+   08027a5a cd ed 1e 7a     vstr.32 q_int_tx,[sp,#am_tx_i_before_mul]  (s15 -> sp + 0x78) //before mul
+   08027a5e cd ed 1f 7a     vstr.32 q_int_tx,[sp,#am_tx_q_before_mul] (s15 -> sp + 0x7c) // before mul
+   08027a62 8d ed 18 7a     vstr.32 i_tx_int,[sp,#q_tx_signal]  (s14 -> sp + 0x60) //after mul
+   08027a66 8d ed 19 7a     vstr.32 i_tx_int,[sp,#i_tx_signal] (s14 -> sp + 0x64)  //after mul
+   08027a6a fd f7 7a b8     b.w     LAB_08024b62  // jump
+
+*/
+
+.section .insert_to_am_mod, "ax"
+_jump_to_am_mod_wrapper:
+  b _am_mod_wrapper
+
+.section .am_mod_wrapper, "ax"
+_am_mod_wrapper:
+  // save registers
+  vpush {s0} // 1
+  vmov s0, s14  // move signal to s0
+  push {r0, r1} // 2
+
+  add r0, sp, 0x78 + (1 + 2) * 4  // iq_before_mul
+  add r1, sp, 0x60 + (1 + 2) * 4  // qi
+
+  vpush {s14, s15}
+  push {r2-r3, lr}
+  bl _am_mod
+  pop {r2-r3, lr}
+  vpop {s14, s15}
+
+  pop {r0, r1}
+  vpop {s0}
+  b _jump_to_am_mod_wrapper + 4 * 8 // jump after AM modulation
+
+.section .am_mod, "ax"
+_am_mod:
   nop

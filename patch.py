@@ -127,13 +127,18 @@ def print_used_registers(fn_name="compress"):
 
 
 class InjectFunction:
-    def __init__(self, name, inject_addr, copy_replaced=False):
+    def __init__(self, name, inject_addr, copy_replaced=False, rodata_vars=(), return_addr=None):
         self.name = name
         self.inject_addr = inject_addr
         self.copy_replaced = copy_replaced
         self.start_addr, self.end_addr = get_block_start_end(name)
         self.wrapper_len = 0
         self.insert_code = b""
+        self.rodata_vars = () or rodata_vars
+        if return_addr is None:
+            self.return_addr = inject_addr + 4
+        else:
+            self.return_addr = return_addr
 
     def setup_wrapper_len(self, asm_o_file):
         self.wrapper_len = align(len(get_patched_section(asm_o_file, f".{self.name}_wrapper")))
@@ -164,6 +169,9 @@ class InjectFunctions:
             })
             accumulated_size += fn.wrapper_len
             self.new_code_end = max(self.new_code_end, fn.end_addr)
+            for var_name in fn.rodata_vars:
+                _, va_end_addr = get_block_start_end(var_name, section_prefix="rodata")
+                self.new_code_end = max(self.new_code_end, va_end_addr)
         # perhaps, add rodata to self code end
 
     def setup_insert_code(self, asm_elf):
@@ -175,6 +183,14 @@ class InjectFunctions:
             start = fn.start_addr - self.flash_offset
             end = fn.end_addr - self.flash_offset
             dst[start: end] = src[start: end]
+
+    def copy_rodata(self, src: bytes, dst: bytearray):
+        for fn in self.functions:
+            for var_name in fn.rodata_vars:
+                start_addr, end_addr = get_block_start_end(var_name, section_prefix="rodata")
+                start = start_addr - self.flash_offset
+                end = end_addr - self.flash_offset
+                dst[start: end] = src[start: end]
 
     def copy_wrappers(self, asm_elf, dst: bytearray):
         for fn in self.functions:
@@ -196,6 +212,10 @@ class InjectFunctions:
                 dst[to_offset: to_offset + 4] = dst[from_offset: from_offset + 4]
             dst[from_offset: from_offset + 4] = fn.insert_code
 
+            # fill gap with nop
+            gap = b"bf00" * ((fn.return_addr - fn.inject_addr - 4) // 2)
+            dst[from_offset + 4: from_offset + 4 + len(gap)] = gap
+
 
 def main():
     with open("firmwares/X6100_BBFW_V1.1.6_221112001_p160.bin", "rb") as f:
@@ -211,7 +231,7 @@ def main():
     stack_p_0 = flash_offset
     stack_p_1 = 0x08032dbc
     # 608 is a len of data struct for injected functions
-    stack_new_p = stack_p_addr - 608
+    stack_new_p = stack_p_addr - 640
 
     # arm-none-eabi-objdump -S build/Release/CMakeFiles/test_patch.dir/Core/Src/compressor.c.obj
 
@@ -227,6 +247,7 @@ def main():
         InjectFunction("tx_coeff_calc", 0x080237ae),  # update coefficients for IQ on TX power change
         InjectFunction("am_fm_rx_process", 0x08027de0),  # process AM/FM rx (sql, dc blocker)
         InjectFunction("anf_update", 0x080251f0),  # update notch filter params
+        InjectFunction("am_mod", 0x08027a4a, rodata_vars=["sin_100"]) # , return_addr=0x08027a6a),  # AM modulation
     ], asm_o_file=o_file, flash_offset=flash_offset, orig_fw_size=len(orig_code))
 
     # rodata_start, rodata_end = get_block_start_end("sin_100", "rodata")
@@ -243,6 +264,8 @@ def main():
 
     # copy new_blocks
     functions.copy_code(patched_code, dst)
+    # copy rodata
+    functions.copy_rodata(patched_code, dst)
 
     #update stack pointers
     for stack_p in (stack_p_0, stack_p_1):
