@@ -9,6 +9,13 @@ Compiled firmwares might be downloaded at [firmwares](./firmwares/) directory.
 
 ## Changelog:
 
+### r3:
+* Added adaptive notch filter (can be turned on using R1CBU since v0.30.0)
+* Added output gain control
+* Fixed threshold and makeup offset control
+* Adjusted CW output level
+* Some refactoring
+
 ### r2:
 * Added FM squelch
 * Removes DC offset of demodulated AM/FM
