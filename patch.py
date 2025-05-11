@@ -247,7 +247,6 @@ def main():
         InjectFunction("tx_coeff_calc", 0x080237ae),  # update coefficients for IQ on TX power change
         InjectFunction("am_fm_rx_process", 0x08027de0),  # process AM/FM rx (sql, dc blocker)
         InjectFunction("anf_update", 0x080251f0),  # update notch filter params
-        InjectFunction("am_mod", 0x08027a4a, rodata_vars=["sin_100"]) # , return_addr=0x08027a6a),  # AM modulation
     ], asm_o_file=o_file, flash_offset=flash_offset, orig_fw_size=len(orig_code))
 
     # rodata_start, rodata_end = get_block_start_end("sin_100", "rodata")

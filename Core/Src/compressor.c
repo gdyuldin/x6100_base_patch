@@ -315,9 +315,9 @@ __attribute__((noinline)) void tx_coeff_calc(float pwr) {
     }
     // set coeffs
     data->tx_amp_coeffs.ssb = k;
-    data->tx_amp_coeffs.cw = k;
     // data->tx_amp_coeffs.fm = 7.6e-2f * k;
     data->tx_amp_coeffs.fm = 8.7e-2f * k;
+    data->tx_amp_coeffs.cw = 7.6e-2f * k;
 
     // for 2.5 w carrier at 10w output
     // *am_carrier_lvl = 0.025f * k;
@@ -482,28 +482,6 @@ __attribute__((noinline, optimize("O2"))) float compress(float val) {
 }
 
 #endif
-
-/**
- * AM shifted modulation
- */
-
-__attribute__((noinline)) void am_mod(float signal, float *iq_before_mul, float *qi) {
-    const uint8_t data_size = sizeof(sin_100) / sizeof(*sin_100);
-    data->am_mod.pos++;
-    if (data->am_mod.pos >= data_size) {
-        data->am_mod.pos = 0;
-    }
-    uint8_t sin_pos = data->am_mod.pos;
-    uint8_t cos_pos = sin_pos + data_size / 4;
-    if (cos_pos >= data_size) {
-        cos_pos -= data_size;
-    }
-    iq_before_mul[0] = sin_100[cos_pos];
-    iq_before_mul[1] = sin_100[sin_pos];
-    qi[0] = iq_before_mul[1] * 8.0f;
-    qi[1] = iq_before_mul[0] * 8.0f;
-}
-
 
 /*
 Amplify TX IQ signal for TX output power
