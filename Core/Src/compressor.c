@@ -45,7 +45,11 @@ Compressor values
 Limiter
 */
 
-#define LIMITER_MAX_VAL 0.00769f
+#define LIMITER_MAX_VAL 0.00741f
+// 6.0w - 7.25W (unity, max)
+// #define LIMITER_MAX_VAL 0.00769f
+// 6.0W - 7.5W (unity, max)
+// #define LIMITER_MAX_VAL 0.00783f
 
 typedef enum
 {
@@ -79,6 +83,12 @@ struct dc_blocker_t {
 };
 
 typedef struct {
+
+    // multiplier for output
+    float dac_output_coeff;
+    // multiplier for input
+    float adc_input_coeff;
+
     struct {
         /* Compressor data */
         float threshold;
@@ -98,10 +108,6 @@ typedef struct {
     } comp;
 
     struct dc_blocker_t tx_dc_blocker;
-
-    struct {
-        uint8_t pos;
-    } am_mod;
 
     struct {
         /* TX level control data */
@@ -285,8 +291,9 @@ void configure() {
     }
     if (data->tx_flag != *tx_flag) {
         data->tx_flag = *tx_flag;
-        if (data->tx_flag)
-        ring_buf_reset(&data->comp.dline);
+        if (data->tx_flag) {
+            ring_buf_reset(&data->comp.dline);
+        }
     }
     // reset compressor
 }
@@ -301,10 +308,11 @@ __attribute__((noinline)) void tx_coeff_calc(float pwr) {
     float *am_depth_of_mod = (float *)0x2000a178;
     float *fm_depth_of_mod = (float *)0x2000a184;
     float k;
+    float dac_gain_offset = (int8_t)(i2c_regs[x6100_rfg_txpwr] >> 16) * 0.2f;
+    data->dac_output_coeff = db2lin(dac_gain_offset);
+    data->adc_input_coeff = 1 / data->dac_output_coeff;
     if (pwr >= 0) {
-        float output_gain_offset = (int8_t)(i2c_regs[x6100_rfg_txpwr] >> 16) * 0.2f;
-        float full_output_pwr = db2lin(-output_gain_offset * 2) * 10.0f;
-        float pow_scale = pwr / full_output_pwr;
+        float pow_scale = pwr / 10.0f;
         if (pow_scale <= 0.0f) {
             k = 1.0f;
         } else {
@@ -314,18 +322,29 @@ __attribute__((noinline)) void tx_coeff_calc(float pwr) {
         k = 1.0f;
     }
     // set coeffs
+    k *= data->dac_output_coeff;
+    // calibrate FM to 10W with 0 gain offset
+    data->tx_amp_coeffs.fm = 8.12e-2f * k;
+
+    // AM carrier ~= fm / 2 ** 0.5 / 2
+    // 25 % of output power is a carrier
+    // 6W (7w wo limiter) output with unity input sine 1000 Hz. Will add 1.291 scale for both carrier and signal
+    // float am_k = 1.291f;
+    // float am_k = 1.195f;
+    float am_k = 1.0f;
+    *am_carrier_lvl = 0.0293f * am_k * k;
+    *am_depth_of_mod = 3.73f * am_k * k;
+
     data->tx_amp_coeffs.ssb = k;
     // data->tx_amp_coeffs.fm = 7.6e-2f * k;
-    data->tx_amp_coeffs.fm = 8.7e-2f * k;
-    data->tx_amp_coeffs.cw = 7.6e-2f * k;
+    data->tx_amp_coeffs.cw = 6.04e-2f * k;
 
     // for 2.5 w carrier at 10w output
     // *am_carrier_lvl = 0.025f * k;
     // *am_depth_of_mod = 3.25f * k;
 
     // for 5W carrier at 10W output
-    *am_carrier_lvl = 0.0353f * k;
-    *am_depth_of_mod = 4.6f * k;
+    // *am_carrier_lvl = 0.0353f * k;
 
     // Set FM depth of mod
     *fm_depth_of_mod = 100.0f;
@@ -400,6 +419,8 @@ __attribute__((noinline, optimize("O2"))) float compress(float val) {
         // case MOD_LSB:
         case MOD_LSB_D: // lsb-d
         case MOD_USB_D: // usb-d
+            return val * data->adc_input_coeff;
+            break;
         case MOD_CW: // cw
         case MOD_CWR: // cwr
             return val;
@@ -410,6 +431,7 @@ __attribute__((noinline, optimize("O2"))) float compress(float val) {
 
     // Remove DC offset
     val = dc_blocker(val, (1.0f - TX_DC_BLOCKER_ALPHA), &data->tx_dc_blocker);
+    val *= data->adc_input_coeff;
 
     // Invert (make enabled by default)
     if (*cmp_enabled) {

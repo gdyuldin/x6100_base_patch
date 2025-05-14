@@ -59,13 +59,13 @@ _compress_wrapper:
     // bl 0x0803436c  // arm_biquad_cascade_df1_f32
     // vldr.32 s0, [sp, #0x58]  // sp+0x58  tx_audio
     vldr s0, [r1]
-    push {r0-r5, lr}
+    push {r0-r5, ip, lr}
     vpush {s1-s15}
 
     bl _compress
 
     vpop {s1-s15}
-    pop {r0-r5, lr}
+    pop {r0-r5, ip, lr}
     vstr s0, [r1]
 
     b _jump_to_compress + 4
@@ -147,9 +147,9 @@ _jump_to_tx_coeff_calc_wrapper:
 _tx_coeff_calc_wrapper:
   vstr.32 s0, [r2]  // from original code
   push {r1-r3, lr}
-  vpush {s2-s15}
+  vpush {s4-s15}
   bl _tx_coeff_calc
-  vpop {s2-s15}
+  vpop {s4-s15}
   pop {r1-r3, lr}
   b _jump_to_tx_coeff_calc_wrapper + 4
 

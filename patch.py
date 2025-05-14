@@ -277,7 +277,7 @@ def main():
     # insert jumps
     functions.insert_jumps(dst)
 
-    ver = "r3"
+    ver = "r4"
     build_time = ver.encode() + bytes(11 - len(ver))
     assert len(build_time) < 12
     build_time_addr = 0x0803b204 - flash_offset
