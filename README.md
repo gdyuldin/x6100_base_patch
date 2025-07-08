@@ -9,6 +9,9 @@ Compiled firmwares might be downloaded at [firmwares](./firmwares/) directory.
 
 ## Changelog:
 
+### r4:
+* Added ADC/DAC gain offset for different HW versions of the transceiver. Corresponding settings on R1CBU GUI is called "Output gain"
+
 ### r3:
 * Added adaptive notch filter (can be turned on using R1CBU since v0.30.0)
 * Added output gain control
