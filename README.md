@@ -9,6 +9,11 @@ Compiled firmwares might be downloaded at [firmwares](./firmwares/) directory.
 
 ## Changelog:
 
+### r6:
+* Fix SWR scan wrong values.
+* Add IQ signals balancing for RX. This removing hum and reducing distortion while AM receiving.
+
+
 ### r4:
 * Added ADC/DAC gain offset for different HW versions of the transceiver. Corresponding settings on R1CBU GUI is called "Output gain"
 
