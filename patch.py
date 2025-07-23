@@ -230,8 +230,8 @@ def main():
     stack_p_addr = 0x20030000
     stack_p_0 = flash_offset
     stack_p_1 = 0x08032dbc
-    # 608 is a len of data struct for injected functions
-    stack_new_p = stack_p_addr - 640
+    # 656 is a len of data struct for injected functions
+    stack_new_p = stack_p_addr - 656
 
     # arm-none-eabi-objdump -S build/Release/CMakeFiles/test_patch.dir/Core/Src/compressor.c.obj
 
@@ -241,10 +241,11 @@ def main():
 
     functions = InjectFunctions([
         InjectFunction("init_data", 0x08032dae),  # fill ram area with zeros
-        InjectFunction("configure", 0x08023c14),  # configure state at start of DMA handler
+        InjectFunction("configure", 0x08023c36),  # configure state at start of DMA handler
+        InjectFunction("apply_rx_iq_offset", 0x080241ac),  # Convert IQ to float and apply an offsets
         InjectFunction("compress", 0x08024b06, copy_replaced=True),  # compress, limit TX signal
         InjectFunction("tx_amp", 0x08024b6e),  # amp IQ according to configured TX power
-        InjectFunction("tx_coeff_calc", 0x080237ae),  # update coefficients for IQ on TX power change
+        InjectFunction("tx_coeff_calc", 0x080237ae, rodata_vars=("tx_coeffs_corr_table",)),  # update coefficients for IQ on TX power change
         InjectFunction("am_fm_rx_process", 0x08027de0),  # process AM/FM rx (sql, dc blocker)
         InjectFunction("anf_update", 0x080251f0),  # update notch filter params
     ], asm_o_file=o_file, flash_offset=flash_offset, orig_fw_size=len(orig_code))
@@ -255,7 +256,6 @@ def main():
     link_patch_helper(o_file, elf, flash_offset, **functions.sections)
 
     functions.setup_insert_code(elf)
-
 
     dst = bytearray(functions.new_code_end - flash_offset)
     # Copy original code
@@ -277,7 +277,7 @@ def main():
     # insert jumps
     functions.insert_jumps(dst)
 
-    ver = "r4"
+    ver = "r6"
     build_time = ver.encode() + bytes(11 - len(ver))
     assert len(build_time) < 12
     build_time_addr = 0x0803b204 - flash_offset

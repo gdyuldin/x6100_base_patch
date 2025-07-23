@@ -46,7 +46,7 @@
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
-// void SystemClock_Config(void);
+void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -66,7 +66,7 @@ int main(void)
   /* USER CODE BEGIN 1 */
   init_data();
   compress(2.0f);
-  am_fm_rx_process(NULL, NULL, NULL);
+  am_fm_rx_process(1.0f, NULL, NULL, 1);
   configure();
   /* USER CODE END 1 */
 
@@ -100,8 +100,9 @@ int main(void)
     float a, b;
     tx_amp(&a, &b);
     tx_coeff_calc(a);
-
-    anf_update(NULL, NULL, NULL, 1);
+    apply_rx_iq_offset();
+    GPIOA->IDR;
+    anf_update();
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */

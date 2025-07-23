@@ -84,10 +84,17 @@ SECTIONS
     start_text = ABSOLUTE(.);
     arm_fill_f32_addr = 0x08032dd8;
     arm_biquad_cascade_df1_f32_addr = 0x0803436c;
+    printStr_addr = 0x08035bf4;
+
     . += arm_fill_f32_addr - start_text;
     *(.arm_fill_f32_sec)
-    . = arm_biquad_cascade_df1_f32_addr - start_text;
-    *(.arm_biquad_cascade_df1_f32_sec)
+
+    /* . = arm_biquad_cascade_df1_f32_addr - start_text;
+    *(.arm_biquad_cascade_df1_f32_sec) */
+
+    . = printStr_addr - start_text;
+    *(.printStr_sec)
+
     . = ALIGN(4);
 
     *(.text)           /* .text sections (code) */
@@ -97,6 +104,7 @@ SECTIONS
     . = end_oem_fw - start_text + 64;
     . = ALIGN(4);
     *(.text*)          /* .text* sections (code) */
+    *(.rodata.tx_coeffs_corr_table)
 
     *(.glue_7)         /* glue arm to thumb code */
     *(.glue_7t)        /* glue thumb to arm code */

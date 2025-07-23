@@ -2,61 +2,82 @@
 
 #include "math.h"
 #include "stdbool.h"
-#include "stdint.h"
 #include "log10f.c"
 #include "powf.c"
 #include "sin_values.c"
+#include "stdarg.h"
+#include "stdio.h"
 
+// #define PER_BAND_OUT_POWER
 
-// 1 - 7+ W
-// 0.1 - 5W
-// 0.05 - 5W
-// 0.01 - 4.5W
-// 0.009 - 4.3W
-// 0.008 - 3.4W
-// 0.007 - 2.7W
-// 0.006 - 2.1W
-// 0.003 - 0.6W
 
 #define MAX(a, b) (a > b ? a : b)
 #define MIN(a, b) (a < b ? a : b)
 
-/*
-Compressor values
-*/
+/**
+ * Genera constants
+ */
 
+#define SWR_SCAN 0x00010
+
+#define BAND_160 1
+#define BAND_80 3
+#define BAND_60 5
+#define BAND_40 7
+#define BAND_30 9
+#define BAND_20 11
+#define BAND_17 13
+#define BAND_15 15
+#define BAND_12 17
+#define BAND_10 19
+#define BAND_6 21
+
+
+/**
+ * Compressor/gate constants
+ */
+
+ // Sine signal level (zero to peak) on SSB, which produces expected power
 #define UNITY_LVL -42.0f
-// #define UNITY_LVL -10.0f
-// #define NOISE_LVL (UNITY_LVL - 35.0f)
+
+// Level of microphone noise
 #define NOISE_LVL -80.0f
 
+// Delay in samples
 #define COMP_DELAY 60
 #define ATT_ALPHA 0.035957992f
 #define RELEASE_ALPHA 0.00061015395f
 #define RATIO_GATE 0.25f
 #define TH_COMP (NOISE_LVL + 25.0f)
-// #define TH_GATE TH_COMP
+
+
+/**
+ * DC blockers constants
+ */
 
 #define TX_DC_BLOCKER_ALPHA (0.05f)
 #define RX_AM_DC_BLOCKER_ALPHA (0.03f)
 #define RX_FM_DC_BLOCKER_ALPHA (0.01f)
 
-/*
-Limiter
-*/
 
+/**
+ * Limir constants
+ */
 #define LIMITER_MAX_VAL 0.00741f
-// 6.0w - 7.25W (unity, max)
-// #define LIMITER_MAX_VAL 0.00769f
-// 6.0W - 7.5W (unity, max)
-// #define LIMITER_MAX_VAL 0.00783f
 
+
+/**
+ * I2C registers
+ */
 typedef enum
 {
+    x6100_sple_atue_trx = 12,
+    x6100_vi_vm,
     x6100_rfg_txpwr = 15,
     x6100_dnfcnt_dnfwidth_dnfe = 24,
     x6100_cmplevel_cmpe = 25,
 } x6100_cmd_enum_t;
+
 
 enum __attribute__((__packed__)) mod_t {
     MOD_LSB,
@@ -69,6 +90,10 @@ enum __attribute__((__packed__)) mod_t {
     MOD_NFM,
 };
 
+
+/**
+ * Ring buffer struct
+ */
 struct ring_buf {
     float *data;
     uint32_t w;
@@ -76,17 +101,19 @@ struct ring_buf {
     uint32_t size;
 };
 
-
+/**
+ * DC blocker struct
+ */
 struct dc_blocker_t {
     float xm1;
     float ym1;
 };
 
-typedef struct {
 
-    // multiplier for output
+typedef struct {
+    // multiplier for output (before DAC)
     float dac_output_coeff;
-    // multiplier for input
+    // multiplier for input (after ADC)
     float adc_input_coeff;
 
     struct {
@@ -134,8 +161,7 @@ typedef struct {
 
     } fm_sql;
 
-    enum mod_t prev_modulation;
-
+    /* ANF data */
     struct {
         bool enabled;
         float an;
@@ -144,7 +170,17 @@ typedef struct {
         uint32_t i2c_reg_val;
     } anf;
 
+    /* RX IQ offset */
+    struct {
+        float i;
+        float q;
+    } rx_iq_offset;
+
+    /* General data */
+    enum mod_t prev_modulation;
     uint8_t tx_flag;
+    bool swr_scan;
+    uint8_t band_id;
     /* Debug and pad */
     // tone
     uint32_t tone_step;
@@ -155,23 +191,58 @@ typedef struct {
 
 static data_t *data = (data_t*)DATA_P;
 
+/**
+ * Output power per-band correction values
+ */
+__section(".rodata.tx_coeffs_corr_table") const float tx_coeffs_corr_table[23] =
+    {
+        [BAND_160] = 0.6f,
+        [BAND_80] = -1.2f,
+        [BAND_40] = -1.4f,
+        [BAND_30] = -1.8f,
+        [BAND_20] = -0.8f,
+        [BAND_17] = -1.2f,
+        [BAND_15] = 1.0f,
+        [BAND_12] = -0.8f,
+        [BAND_10] = 1.0f,
+        [BAND_6] = -1.8f,
+};
+
+
+/**
+ * Actual values pointers
+ */
+
+// Modulation pointer
 static enum mod_t *modulation = (enum mod_t *)0x2000a8cd;
+
+// Compressor values
 static uint8_t *cmp_enabled = (uint8_t *)0x200000c4;
 static uint8_t *cmp_level = (uint8_t *)0x200000c3;
+
+// Squelch value
 static uint8_t *sql = (uint8_t *)0x200000a9;
 
+// UART flow fields
+static uint32_t *flow_reserved_3 = (uint32_t*)0x200013f8;
 
+
+// I2C registers values start pointer
 static uint32_t *i2c_regs = (uint32_t *)0x2000357c;
-// static uint32_t *i2c_regs_from_12 = (uint32_t *)0x2000dd7c;
 
-static uint8_t *tx_flag = (uint8_t *)0x2000a8cf;
+static volatile uint8_t *tx_flag = (uint8_t *)0x2000a8cf;
 
-__attribute__((noinline)) void tx_coeff_calc(float pwr);
+static float *am_carrier_lvl = (float *)0x2000a174;
+
+
+/**
+ * Declarations of compiled in OEM functions
+ */
 extern void arm_fill_f32 (float val, float* data, uint32_t size) __attribute__((noinline, section(".arm_fill_f32_sec")));
 
-/*
-Helper functions
-*/
+/**
+ * Db <-> linear conversion
+ */
 
 inline float db2lin(float val) {
     return powf10_c(val / 20.0f);
@@ -181,9 +252,11 @@ inline float lin2db(float val) {
     return 20.0f * log10f_c(val + 1e-16f);
 }
 
-/*
-Operate with buffer
-*/
+
+
+/**
+ * Operations with a ring buffer
+ */
 
 void ring_buf_put(struct ring_buf *buf, float val) {
     buf->data[buf->w] = val;
@@ -213,36 +286,13 @@ void ring_buf_reset(struct ring_buf *buf) {
     buf->r = 0;
 }
 
-/*
-Initialize data with zeros (at start)
-*/
 
-__attribute__((optimize("O1"))) void init_data(void) {
-    uint32_t *area_end = (uint32_t*)0x20030000;
-    uint32_t *area_start = area_end - sizeof(data_t) / sizeof(uint32_t);
-
-    for (;area_start < area_end; area_start++) {
-        *area_start = 0;
-    }
-    data->comp.dline.data = data->comp.dline_data;
-    data->comp.dline.size = sizeof(data->comp.dline_data) / sizeof(*data->comp.dline_data);
-    data->comp.squared_acc.data = data->comp.squared_acc_data;
-    data->comp.squared_acc.size = sizeof(data->comp.squared_acc_data) / sizeof(*data->comp.squared_acc_data);
-}
-
-/*
-DC blocker
-*/
 inline float dc_blocker(float val, float k, struct dc_blocker_t *dc) {
     float tmp = val - dc->xm1 + k * dc->ym1;
     dc->xm1 = val;
     dc->ym1 = tmp;
     return tmp;
 }
-
-/*
-Soft limiter
-*/
 
 float soft_limiter(float val) {
     const float th = LIMITER_MAX_VAL * 0.5f;
@@ -257,17 +307,14 @@ float soft_limiter(float val) {
     return val;
 }
 
-/*
-Configuration
-*/
 
-void update_comp_params() {
+static inline void update_comp_params() {
     if ((i2c_regs[x6100_cmplevel_cmpe] != data->comp.i2c_reg_val) || (data->comp.ratio_comp == 0.0f)) {
         data->comp.i2c_reg_val = i2c_regs[x6100_cmplevel_cmpe];
         float threshold_offset = (int8_t)((data->comp.i2c_reg_val >> 3) & 0xFC) * 0.125f;
         float makeup_offset = (int8_t)((data->comp.i2c_reg_val >> 9) & 0xFC) * 0.125f;
 
-        // ratio configured with -2 offset: 0 -> 2:1, 1 -> 3:1
+        // ratio configured with -2 offset: 0 -> 2:1, 1 -> 3:1, etc
         data->comp.ratio_comp = *cmp_level + 2.0f;
         data->comp.threshold = TH_COMP + threshold_offset;
         data->comp.makeup = ((UNITY_LVL - data->comp.threshold) * (1.0f - 1.0f / data->comp.ratio_comp) - 2.0f) + makeup_offset;
@@ -281,36 +328,111 @@ void update_anf_params() {
     }
 }
 
+/**
+ * Setup data storage. Inject, calls at startup
+ */
+__attribute__((optimize("O1"))) void init_data(void) {
+    uint32_t *area_end = (uint32_t*)0x20030000;
+    uint32_t *area_start = area_end - sizeof(data_t) / sizeof(uint32_t);
+
+    for (;area_start < area_end; area_start++) {
+        *area_start = 0;
+    }
+    data->comp.dline.data = data->comp.dline_data;
+    data->comp.dline.size = sizeof(data->comp.dline_data) / sizeof(*data->comp.dline_data);
+    data->comp.squared_acc.data = data->comp.squared_acc_data;
+    data->comp.squared_acc.size = sizeof(data->comp.squared_acc_data) / sizeof(*data->comp.squared_acc_data);
+}
+
+
+/**
+ * Update signal processing parameters. Inject, calls at beginning of the DMA process.
+ */
+
 void configure() {
     update_comp_params();
     update_anf_params();
+    bool update_tx_coeffs = false;
+    // Update power-related coefficients, if power was changed
     if (i2c_regs[x6100_rfg_txpwr] != data->tx_amp_coeffs.i2c_pwr_reg) {
         data->tx_amp_coeffs.i2c_pwr_reg = i2c_regs[x6100_rfg_txpwr];
+        update_tx_coeffs = true;
+    }
+    bool swr_scan = i2c_regs[x6100_sple_atue_trx] & SWR_SCAN;
+    if (swr_scan != data->swr_scan) {
+        data->swr_scan = swr_scan;
+        update_tx_coeffs = true;
+    }
+    uint8_t band_id = (uint8_t)(i2c_regs[x6100_vi_vm] >> 8);
+    if (band_id != data->band_id) {
+        data->band_id = band_id;
+        update_tx_coeffs = true;
+    }
+    if (update_tx_coeffs) {
         float pwr = (uint8_t)(data->tx_amp_coeffs.i2c_pwr_reg >> 8) * 0.1f;
         tx_coeff_calc(pwr);
     }
+    // Output audio input data
+    // int32_t *tx_data = (int32_t *)0x20003a94;
+    // data->tone_step++;
+    // if (data->tone_step >= 50) {
+    //     flow_reserved_3[0] = tx_data[0];
+    //     flow_reserved_3[1] = tx_data[1];
+    //     // Print gpio values
+    //     // flow_reserved_3[0] = GPIOD->IDR;
+    //     // flow_reserved_3[1] = GPIOE->IDR;
+    //     // flow_reserved_3[2] = GPIOI->IDR;
+    //     data->tone_step = 0;
+    // }
+    // Reset ring buffers (for compressor) on RX/TX state change
     if (data->tx_flag != *tx_flag) {
         data->tx_flag = *tx_flag;
         if (data->tx_flag) {
             ring_buf_reset(&data->comp.dline);
         }
     }
-    // reset compressor
+}
+
+/**
+ * Convert int IQ to float and apply offsets
+ */
+void apply_rx_iq_offset(void) {
+    // IQ incoming data manipulation
+
+    // get stack pointer
+    register void *sp asm ("sp");
+
+    float *i = (float *)sp + 0;
+    float *q = (float *)sp + 1;
+
+    *i -= data->rx_iq_offset.i;
+    *q -= data->rx_iq_offset.q;
+
+    data->rx_iq_offset.i += *i * 0.0001f;
+    data->rx_iq_offset.q += *q * 0.0001f;
 }
 
 
-/*
-Set IQ scale on changing TX power
-*/
-__attribute__((noinline)) void tx_coeff_calc(float pwr) {
-    // data_t *data = (data_t*)DATA_P;
-    float *am_carrier_lvl = (float *)0x2000a174;
+/**
+ * Set IQ scale on changing TX power
+ */
+__noinline void tx_coeff_calc(float pwr) {
     float *am_depth_of_mod = (float *)0x2000a178;
     float *fm_depth_of_mod = (float *)0x2000a184;
     float k;
     float dac_gain_offset = (int8_t)(i2c_regs[x6100_rfg_txpwr] >> 16) * 0.2f;
-    data->dac_output_coeff = db2lin(dac_gain_offset);
-    data->adc_input_coeff = 1 / data->dac_output_coeff;
+#ifdef PER_BAND_OUT_POWER
+    float dac_band_gain_offset = tx_coeffs_corr_table[data->band_id];
+#else
+    float dac_band_gain_offset = 0.0f;
+#endif
+
+    // flow_reserved_3[0] = data->band_id;
+    // flow_reserved_3[1] = *(uint32_t*)&dac_gain_offset;
+    // flow_reserved_3[2] = *(uint32_t*)&dac_band_gain_offset;
+
+    data->dac_output_coeff = db2lin(dac_gain_offset + dac_band_gain_offset);
+    data->adc_input_coeff = 1 / db2lin(dac_gain_offset);
     if (pwr >= 0) {
         float pow_scale = pwr / 10.0f;
         if (pow_scale <= 0.0f) {
@@ -332,7 +454,11 @@ __attribute__((noinline)) void tx_coeff_calc(float pwr) {
     // float am_k = 1.291f;
     // float am_k = 1.195f;
     float am_k = 1.0f;
-    *am_carrier_lvl = 0.0293f * am_k * k;
+    if (data->swr_scan) {
+        *am_carrier_lvl = 0.75f;
+    } else {
+        *am_carrier_lvl = 0.0293f * am_k * k;
+    }
     *am_depth_of_mod = 3.73f * am_k * k;
 
     data->tx_amp_coeffs.ssb = k;
@@ -350,70 +476,9 @@ __attribute__((noinline)) void tx_coeff_calc(float pwr) {
     *fm_depth_of_mod = 100.0f;
 }
 
-/*
-Compressor, limiter
-*/
-
-// #define TONE_TEST
-
-#ifdef TONE_TEST
-#define LEVEL (0.0087f)
-
-/*
-Tone generator for levels testing
-*/
-__attribute__((noinline, optimize("O1"))) float compress(float val) {
-    uint8_t *modulation = (uint8_t *)0x2000a8cd;
-
-    switch (*modulation) {
-        case MOD_LSB_D:
-        case MOD_USB_D:
-        case MOD_CW:
-        case MOD_CWR:
-            return val;
-            break;
-    }
-
-    data_t *data = (data_t*)DATA_P;
-
-    data->tone_step++;
-    data->tone_step = data->tone_step & 7;
-
-    switch (data->tone_step)
-    {
-    case 0:
-        val = 0.0f * LEVEL;
-        break;
-    case 1:
-        val = 7.07106781e-01f * LEVEL;
-        break;
-    case 2:
-        val = 1.0f * LEVEL;
-        break;
-    case 3:
-        val = 7.07106781e-01f * LEVEL;
-        break;
-    case 4:
-        val = 1.22464680e-16f * LEVEL;
-        break;
-    case 5:
-        val = -7.07106781e-01f * LEVEL;
-        break;
-    case 6:
-        val = -1.0f * LEVEL;
-        break;
-    case 7:
-        val = -7.07106781e-01f * LEVEL;
-        break;
-
-    default:
-        break;
-    }
-    return val;
-}
-
-#else
-
+/**
+ * Compressor, limiter
+ */
 __attribute__((noinline, optimize("O2"))) float compress(float val) {
     switch (*modulation) {
         // case MOD_LSB:
@@ -503,11 +568,10 @@ __attribute__((noinline, optimize("O2"))) float compress(float val) {
     return old_val;
 }
 
-#endif
 
-/*
-Amplify TX IQ signal for TX output power
-*/
+/**
+ * Amplify TX IQ signal for TX output power
+ */
 __attribute__((noinline)) void tx_amp(float *i, float *q) {
     float k;
     switch (*modulation)
@@ -537,9 +601,9 @@ __attribute__((noinline)) void tx_amp(float *i, float *q) {
 }
 
 
-/*
-Process AM/FM RX signals
-*/
+/**
+ * Process AM/FM RX signals
+ */
 
 // from CMSIS-DSP Include/dsp/filtering_functions.h
 /**
@@ -554,18 +618,18 @@ typedef struct
 } arm_fir_decimate_instance_f32;
 
 
-/*
-fake fn (will be replaced with actual func address during linking)
-*/
+/**
+ * fake fn (will be replaced with actual func address during linking)
+ */
 void arm_fill_f32 (float val, float* data, uint32_t size) {
     data[size-1] = val;
     return;
 }
 
 
-/*
-Process AM/FM rx signal after demodulation
-*/
+/**
+ * Process AM/FM rx signal after demodulation
+ */
 float am_fm_rx_process(float val, float *i, float *q, uint8_t modulation) {
     // data_t *data = (data_t*)DATA_P;
 

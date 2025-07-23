@@ -20,8 +20,9 @@
 
   At begin of the DMA stream handler
 
-   08023c14 09 f0 10 fa     bl      0x0802d038, DMA_ClearITPendingBit(&Peripherals::DMA1_Stream3,0x18008000)
-   args - r0, r1
+   08023c36 09 f0 7b f9     bl      get_dma_cr_register_value (0802cf30)           uint get_dma_cr_regist
+   args - r0
+   return -r0
 */
 
 .section .insert_to_configure, "ax"
@@ -30,17 +31,53 @@ _jump_to_configure_wrapper:
 
 .section .configure_wrapper, "ax"
 _configure_wrapper:
-  bl 0x0802d038  //call DMA_ClearITPendingBit
-  // save registers
-  push {r1-r3, lr}
+  bl 0x0802cf30  // call get_dma_cr_register_value
+
+  vpush {s0}
   vpush {s8-s15}
+  push {r0-r4, ip, lr}
   bl _configure
+  pop {r0-r4, ip, lr}
   vpop {s8-s15}
-  pop {r1-r3, lr}
+  vpop {s0}
+
   b _jump_to_configure_wrapper + 4
 
 .section .configure, "ax"
 _configure:
+  nop
+
+
+// Convert IQ to float and apply an offset
+/*
+   080241ac 68 ee a7 8a     vmul.   s17,s17,s15
+   080241b0 28 ee 27 8a     vmul.   s16,s16,s15
+*/
+
+.section .insert_to_apply_rx_iq_offset, "ax"
+_jump_to_apply_rx_iq_offset_wrapper:
+  b _apply_rx_iq_offset_wrapper
+
+.section .apply_rx_iq_offset_wrapper, "ax"
+_apply_rx_iq_offset_wrapper:
+  // save func registers
+  push {r2, r3}
+  vpush {s12-s15}
+
+  // push arguments, call func, pop arguments
+  vpush {s16, s17}
+  bl _apply_rx_iq_offset
+  vpop {s16, s17}
+
+  vpop {s12-s15}
+  pop {r2, r3}
+
+  vmul.f32 s17,s17,s15  // from original
+
+  b _jump_to_apply_rx_iq_offset_wrapper + 4
+
+.section .apply_rx_iq_offset, "ax"
+_apply_rx_iq_offset:
   nop
 
 
@@ -146,11 +183,11 @@ _jump_to_tx_coeff_calc_wrapper:
 .section .tx_coeff_calc_wrapper, "ax"
 _tx_coeff_calc_wrapper:
   vstr.32 s0, [r2]  // from original code
-  push {r1-r3, lr}
-  vpush {s4-s15}
+  push {r0-r4, lr}
+  vpush {s0-s16}
   bl _tx_coeff_calc
-  vpop {s4-s15}
-  pop {r1-r3, lr}
+  vpop {s0-s16}
+  pop {r0-r4, lr}
   b _jump_to_tx_coeff_calc_wrapper + 4
 
 .section .tx_coeff_calc, "ax"
