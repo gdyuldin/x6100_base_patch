@@ -9,6 +9,9 @@ Compiled firmwares might be downloaded at [firmwares](./firmwares/) directory.
 
 ## Changelog:
 
+### r7:
+* Fix receiving unwanted signals for a few seconds after stop TX.  https://youtu.be/ljKug5yumMA
+
 ### r6:
 * Fix SWR scan wrong values.
 * Add IQ signals balancing for RX. This removing hum and reducing distortion while AM receiving.

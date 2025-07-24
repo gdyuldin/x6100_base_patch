@@ -90,6 +90,13 @@ enum __attribute__((__packed__)) mod_t {
     MOD_NFM,
 };
 
+enum __attribute__((__packed__)) rx_tx_process_state {
+    RX_TX_STATE_NORMAL,
+    RX_TX_STATE_PIN_DISCHARGE,
+    RX_TX_STATE_MUTE,
+    RX_TX_STATE_WAIT_PIN_SWITCH,
+};
+
 
 /**
  * Ring buffer struct
@@ -172,9 +179,22 @@ typedef struct {
 
     /* RX IQ offset */
     struct {
-        float i;
-        float q;
-    } rx_iq_offset;
+        // Average I value (I offset)
+        float i_mean;
+        // Average Q value (Q offset)
+        float q_mean;
+        // Block processing id (after tx->rx)
+        uint32_t step;
+        int32_t min_i;
+        int32_t min_q;
+        // Saved I offset for PIN discharging
+        float i_mean_fix;
+        // Saved Q offset for PIN discharging
+        float q_mean_fix;
+        // Last TX flag
+        uint8_t last_tx;
+        enum rx_tx_process_state state;
+    } rx_iq_corr;
 
     /* General data */
     enum mod_t prev_modulation;
@@ -196,16 +216,16 @@ static data_t *data = (data_t*)DATA_P;
  */
 __section(".rodata.tx_coeffs_corr_table") const float tx_coeffs_corr_table[23] =
     {
-        [BAND_160] = 0.6f,
-        [BAND_80] = -1.2f,
-        [BAND_40] = -1.4f,
-        [BAND_30] = -1.8f,
-        [BAND_20] = -0.8f,
-        [BAND_17] = -1.2f,
-        [BAND_15] = 1.0f,
-        [BAND_12] = -0.8f,
-        [BAND_10] = 1.0f,
-        [BAND_6] = -1.8f,
+        [BAND_160] = 1.0f,
+        [BAND_80] = -0.2f,
+        [BAND_40] = -0.4f,
+        [BAND_30] = -0.4f,
+        [BAND_20] = 0.6f,
+        [BAND_17] = -0.0f,
+        [BAND_15] = 2.0f,
+        [BAND_12] = 0.8f,
+        [BAND_10] = 2.0f,
+        [BAND_6] = -0.0f,
 };
 
 
@@ -328,6 +348,71 @@ void update_anf_params() {
     }
 }
 
+inline static void fast_iq_offset_counter_setup() {
+    int32_t *input_data = *(int32_t **)0x200003b0;
+    // int32_t *input_data = (int32_t *)0x20003e94;
+    uint32_t samples_count = *(uint32_t*)0x2000dd58;
+
+    // Increase counter
+    if (data->rx_iq_corr.step <= 800) {
+        data->rx_iq_corr.step++;
+    }
+    if (*tx_flag != data->rx_iq_corr.last_tx) {
+        data->rx_iq_corr.last_tx = *tx_flag;
+        if (!*tx_flag) {
+            data->rx_iq_corr.step = 0;
+            data->rx_iq_corr.state = RX_TX_STATE_MUTE;
+        }
+    }
+
+    if (data->rx_iq_corr.state == RX_TX_STATE_MUTE) {
+        if (data->rx_iq_corr.step >= 95) {
+            // Mute -> wait switch
+            data->rx_iq_corr.state = RX_TX_STATE_WAIT_PIN_SWITCH;
+            data->rx_iq_corr.min_i = (1 << 31);
+            data->rx_iq_corr.min_q = (1 << 31);
+        }
+    } else if (data->rx_iq_corr.state == RX_TX_STATE_WAIT_PIN_SWITCH) {
+        if (data->rx_iq_corr.step > 160) {
+            // Too long seach state, wait -> discharge
+            data->rx_iq_corr.state = RX_TX_STATE_PIN_DISCHARGE;
+            data->rx_iq_corr.i_mean_fix = data->rx_iq_corr.i_mean;
+            data->rx_iq_corr.i_mean = data->rx_iq_corr.min_i;
+            data->rx_iq_corr.q_mean_fix = data->rx_iq_corr.q_mean;
+            data->rx_iq_corr.q_mean = data->rx_iq_corr.min_q;
+        } else {
+            // searching for min value
+            int32_t min_i = (1<<30);
+            int32_t min_q = (1<<30);
+            for (size_t i = 0; i < samples_count * 2; i+=2) {
+                int32_t val = ((uint32_t)input_data[i] >> 0x10) | (input_data[i] << 0x10);
+                min_i = MIN(min_i, val);
+
+                val = ((uint32_t)input_data[i + 1] >> 0x10) | (input_data[i + 1] << 0x10);
+                min_q = MIN(min_q, val);
+            }
+            // Check for increasing values (pin switch) to switch the next state
+            if (min_i < data->rx_iq_corr.min_i) {
+                data->rx_iq_corr.min_i = min_i;
+            } else if (min_q < data->rx_iq_corr.min_q) {
+                data->rx_iq_corr.min_q = min_q;
+            } else {
+                // Val increases, wait -> discharge
+                data->rx_iq_corr.state = RX_TX_STATE_PIN_DISCHARGE;
+                data->rx_iq_corr.i_mean_fix = data->rx_iq_corr.i_mean;
+                data->rx_iq_corr.i_mean = min_i;
+                data->rx_iq_corr.q_mean_fix = data->rx_iq_corr.q_mean;
+                data->rx_iq_corr.q_mean = min_q;
+            }
+        }
+    } else if (data->rx_iq_corr.state == RX_TX_STATE_PIN_DISCHARGE) {
+        if (data->rx_iq_corr.step >= 800) {
+            // discharge -> normal process
+            data->rx_iq_corr.state = RX_TX_STATE_NORMAL;
+        }
+    }
+}
+
 /**
  * Setup data storage. Inject, calls at startup
  */
@@ -372,12 +457,11 @@ void configure() {
         float pwr = (uint8_t)(data->tx_amp_coeffs.i2c_pwr_reg >> 8) * 0.1f;
         tx_coeff_calc(pwr);
     }
+    fast_iq_offset_counter_setup();
     // Output audio input data
     // int32_t *tx_data = (int32_t *)0x20003a94;
     // data->tone_step++;
     // if (data->tone_step >= 50) {
-    //     flow_reserved_3[0] = tx_data[0];
-    //     flow_reserved_3[1] = tx_data[1];
     //     // Print gpio values
     //     // flow_reserved_3[0] = GPIOD->IDR;
     //     // flow_reserved_3[1] = GPIOE->IDR;
@@ -405,11 +489,29 @@ void apply_rx_iq_offset(void) {
     float *i = (float *)sp + 0;
     float *q = (float *)sp + 1;
 
-    *i -= data->rx_iq_offset.i;
-    *q -= data->rx_iq_offset.q;
+    float a = 0.0001f;
 
-    data->rx_iq_offset.i += *i * 0.0001f;
-    data->rx_iq_offset.q += *q * 0.0001f;
+    if (data->rx_iq_corr.state == RX_TX_STATE_PIN_DISCHARGE) {
+        // Discharge step
+        const float k = 1.0f - 0.000051f;
+        data->rx_iq_corr.i_mean = (data->rx_iq_corr.i_mean - data->rx_iq_corr.i_mean_fix)*k + data->rx_iq_corr.i_mean_fix;
+        data->rx_iq_corr.q_mean = (data->rx_iq_corr.q_mean - data->rx_iq_corr.q_mean_fix)*k + data->rx_iq_corr.q_mean_fix;
+        a = 0.0003f;
+    }
+
+    if ((data->rx_iq_corr.state == RX_TX_STATE_MUTE) || (data->rx_iq_corr.state == RX_TX_STATE_WAIT_PIN_SWITCH)) {
+        *i = 0.0f;
+        *q = 0.0f;
+    } else {
+        float i_corr = *i - data->rx_iq_corr.i_mean;
+        float q_corr = *q - data->rx_iq_corr.q_mean;
+
+        *i = i_corr;
+        *q = q_corr;
+
+        data->rx_iq_corr.i_mean += *i * a;
+        data->rx_iq_corr.q_mean += *q * a;
+    }
 }
 
 

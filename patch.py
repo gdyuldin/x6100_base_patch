@@ -231,7 +231,7 @@ def main():
     stack_p_0 = flash_offset
     stack_p_1 = 0x08032dbc
     # 656 is a len of data struct for injected functions
-    stack_new_p = stack_p_addr - 656
+    stack_new_p = stack_p_addr - 672
 
     # arm-none-eabi-objdump -S build/Release/CMakeFiles/test_patch.dir/Core/Src/compressor.c.obj
 
@@ -277,7 +277,7 @@ def main():
     # insert jumps
     functions.insert_jumps(dst)
 
-    ver = "r6"
+    ver = "r7"
     build_time = ver.encode() + bytes(11 - len(ver))
     assert len(build_time) < 12
     build_time_addr = 0x0803b204 - flash_offset

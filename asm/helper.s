@@ -61,16 +61,16 @@ _jump_to_apply_rx_iq_offset_wrapper:
 .section .apply_rx_iq_offset_wrapper, "ax"
 _apply_rx_iq_offset_wrapper:
   // save func registers
-  push {r2, r3}
-  vpush {s12-s15}
+  push {r1-r3}
+  vpush {s11-s15}
 
   // push arguments, call func, pop arguments
   vpush {s16, s17}
   bl _apply_rx_iq_offset
   vpop {s16, s17}
 
-  vpop {s12-s15}
-  pop {r2, r3}
+  vpop {s11-s15}
+  pop {r1-r3}
 
   vmul.f32 s17,s17,s15  // from original
 
