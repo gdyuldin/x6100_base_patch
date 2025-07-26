@@ -34,6 +34,7 @@ patchsets = {
         'arm_biquad_cascade_df1_f32': 0x0803436c,
         'print_str': 0x08035bf4,
         'end_oem_fw_offset': 0x0807df34,
+        'arm_sqrt_f32': 0x0803a41c,
     },
     # X6100_BBFW_V1.1.6_230307001.bin
     'f19fb85db1f74ad10eb379927880519c': {
@@ -55,6 +56,7 @@ patchsets = {
         'arm_biquad_cascade_df1_f32': 0x08036024,
         'print_str': 0x080378ac,
         'end_oem_fw_offset': 0x807fbf4,
+        'arm_sqrt_f32': 0x0803c0d4,
     },
 }
 
@@ -63,6 +65,7 @@ def make_stm32f_ld_file(patchset):
         src = f.read()
     replaces = dict(ARM_FILL_F32_ADDR="arm_fill_f32",
                     ARM_BIQUAD_CASCADE_DF1_F32_ADDR="arm_biquad_cascade_df1_f32",
+                    ARM_SQRT_F32_ADDR="arm_sqrt_f32",
                     PRINT_STR_ADDR="print_str",
                     END_OEM_FW_OFFSET="end_oem_fw_offset")
     for k, i in replaces.items():

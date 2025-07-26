@@ -6,7 +6,6 @@
 #include "log10f.c"
 #include "powf.c"
 #include "sin_values.c"
-#include "sqrtf.c"
 #include "stdarg.h"
 #include "stdio.h"
 
@@ -261,6 +260,7 @@ static float *am_carrier_lvl = (float *)AM_CARRIER_LEVEL_VALUE;
  * Declarations of compiled in OEM functions
  */
 extern void arm_fill_f32 (float val, float* data, uint32_t size) __attribute__((noinline, section(".arm_fill_f32_sec")));
+extern float arm_sqrt_f32 (float val) __attribute__((noinline, section(".arm_sqrt_f32_sec")));
 
 /**
  * Db <-> linear conversion
@@ -544,7 +544,7 @@ __noinline void tx_coeff_calc(float pwr) {
 #ifdef USE_MATH_SQRT
             k = sqrtf(pow_scale);
 #else
-            k = sqrtf_c(pow_scale);
+            k = arm_sqrt_f32(pow_scale);
 #endif
         }
     } else {
@@ -630,9 +630,9 @@ __attribute__((noinline, optimize("O2"))) float compress(float val) {
     float squared_mean = data->comp.squared_sum / data->comp.squared_acc.size;
     if (squared_mean >= 0) {
 #ifdef USE_MATH_SQRT
-        rms = sqrtf(squared_mean);
+            rms = sqrtf(squared_mean);
 #else
-        rms = sqrtf_c(squared_mean);
+            rms = arm_sqrt_f32(squared_mean);
 #endif
     } else {
         rms = 0.0f;
@@ -737,6 +737,9 @@ void arm_fill_f32 (float val, float* data, uint32_t size) {
     return;
 }
 
+float arm_sqrt_f32 (float v) {
+    return sqrtf(v);
+}
 
 /**
  * Process AM/FM rx signal after demodulation

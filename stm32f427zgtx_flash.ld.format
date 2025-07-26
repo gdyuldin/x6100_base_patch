@@ -85,6 +85,7 @@ SECTIONS
 
     arm_fill_f32_addr = ARM_FILL_F32_ADDR;
     arm_biquad_cascade_df1_f32_addr = ARM_BIQUAD_CASCADE_DF1_F32_ADDR;
+    arm_sqrt_f32_addr = ARM_SQRT_F32_ADDR;
     printStr_addr = PRINT_STR_ADDR;
 
     . += arm_fill_f32_addr - start_text;
@@ -95,6 +96,9 @@ SECTIONS
 
     . = printStr_addr - start_text;
     *(.printStr_sec)
+
+    . = arm_sqrt_f32_addr - start_text;
+    *(.arm_sqrt_f32_sec)
 
     . = ALIGN(4);
 

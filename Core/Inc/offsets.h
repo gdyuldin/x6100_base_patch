@@ -43,7 +43,6 @@
 #define ARM_BIQUAD_CASD_DF1_INST_VALUE  (0x2000d99c)
 
 
-// use own inline sqrt function
 //#define USE_MATH_SQRT
 // this firmware version's output is too low
 // 0.1w out on 5w device setting
