@@ -351,9 +351,9 @@ static inline void update_anf_params() {
 }
 
 inline static void fast_iq_offset_counter_setup() {
-    int32_t *input_data = *(int32_t **)0x200003b0;
+    int32_t *input_data = *(int32_t **)INPUT_DATA_ADDR;
     // int32_t *input_data = (int32_t *)0x20003e94;
-    uint32_t samples_count = *(uint32_t*)0x2000dd58;
+    uint32_t samples_count = *(uint32_t*)SAMPLES_COUNT_VALUE;
 
     // Increase counter
     if (data->rx_iq_corr.step <= 800) {
