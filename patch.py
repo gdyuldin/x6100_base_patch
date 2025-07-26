@@ -30,6 +30,10 @@ patchsets = {
         'am_fm_rx_process': 0x08027de0,
         'anf_update': 0x080251f0,
         'build_time': 0x0803b204,
+        'arm_fill_f32': 0x08032dd8,
+        'arm_biquad_cascade_df1_f32': 0x0803436c,
+        'print_str': 0x08035bf4,
+        'end_oem_fw_offset': 0x0807df34,
     },
     # X6100_BBFW_V1.1.6_230307001.bin
     'f19fb85db1f74ad10eb379927880519c': {
@@ -47,8 +51,24 @@ patchsets = {
         'am_fm_rx_process': 0x08028b8e,
         'anf_update': 0x08025bc8,
         'build_time': 0x0803cebc,
+        'arm_fill_f32': 0x08034a90,
+        'arm_biquad_cascade_df1_f32': 0x08036024,
+        'print_str': 0x080378ac,
+        'end_oem_fw_offset': 0x807fbf4,
     },
 }
+
+def make_stm32f_ld_file(patchset):
+    with open("stm32f427zgtx_flash.ld.format") as f:
+        src = f.read()
+    replaces = dict(ARM_FILL_F32_ADDR="arm_fill_f32",
+                    ARM_BIQUAD_CASCADE_DF1_F32_ADDR="arm_biquad_cascade_df1_f32",
+                    PRINT_STR_ADDR="print_str",
+                    END_OEM_FW_OFFSET="end_oem_fw_offset")
+    for k, i in replaces.items():
+        src = src.replace(k, hex(patchset[i]))
+    with open("stm32f427zgtx_flash.ld", "w") as f:
+        f.write(src)
 
 def compile_c_binaries(date):
     cmd = "mkdir -p build/Release"
@@ -274,6 +294,7 @@ def main():
     hashsum = hashlib.md5(orig_code).hexdigest()
     patchset = patchsets[hashsum]
 
+    make_stm32f_ld_file(patchset)
     compile_c_binaries(date=patchset["date"])
 
     with open(f"build/Release/{prog_name}.bin", "rb") as f:
