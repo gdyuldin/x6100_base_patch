@@ -108,7 +108,7 @@ float powf_c(float x, float n)
 }
 
 
-inline float powf10_c(float n)
+inline __attribute__((always_inline)) float powf10_c(float n)
 {
 	float a, b, c, d, xx;
 	int m;

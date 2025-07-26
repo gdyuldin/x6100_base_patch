@@ -31,7 +31,7 @@ RMS  Error: ~0.0005%
 
 #include "math.h"
 
-inline float sqrtf_c(float x)
+inline __attribute__((always_inline)) float sqrtf_c(float x)
 {
 
 	float b, c;
