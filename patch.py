@@ -1,3 +1,4 @@
+import os
 import shlex
 import pathlib
 import subprocess
@@ -48,6 +49,18 @@ patchsets = {
         'build_time': 0x0803cebc,
     },
 }
+
+def compile_c_binaries(date):
+    cmd = "mkdir -p build/Release"
+    subprocess.check_call(shlex.split(cmd))
+    os.chdir("build/Release")
+    cmd = f"cmake -DCMAKE_BUILD_TYPE=Release -DTARGET_BUILD_DATE={date} ../.."
+    subprocess.check_call(shlex.split(cmd))
+    # TODO in this time always full build
+    subprocess.check_call(["make", "clean"])
+    subprocess.check_call("make")
+    # TODO check build result
+    os.chdir("../..")
 
 def compile_patch_helper(asm, o_file, date):
     cmd = f"arm-none-eabi-as {asm} -o {o_file} --defsym BUILD_DATE={date}"
@@ -260,6 +273,8 @@ def main():
 
     hashsum = hashlib.md5(orig_code).hexdigest()
     patchset = patchsets[hashsum]
+
+    compile_c_binaries(date=patchset["date"])
 
     with open(f"build/Release/{prog_name}.bin", "rb") as f:
         patched_code = f.read()
