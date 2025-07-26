@@ -15,9 +15,42 @@ import numpy as np
 
 prog_name = "x6100_mcu"
 
+patchsets = {
+    # X6100_BBFW_V1.1.6_221112001.bin
+    '36eb378655ac5661a3e676a0b6caab02': {
+        'date': '221112001',
+        'stack_p_1': 0x08032dbc,
+        'init_data': 0x08032dae,
+        'configure': 0x08023c36,
+        'apply_rx_iq_offset': 0x080241ac,
+        'compress': 0x08024b06,
+        'tx_amp': 0x08024b6e,
+        'tx_coeff_calc': 0x080237ae,
+        'am_fm_rx_process': 0x08027de0,
+        'anf_update': 0x080251f0,
+        'build_time': 0x0803b204,
+    },
+    # X6100_BBFW_V1.1.6_230307001.bin
+    'f19fb85db1f74ad10eb379927880519c': {
+        # STACK_P = 0x20003000
+        # DATA_START = 0x20000000
+        # BSS_START  = 0x20003560
+        'date': '230307001',
+        'stack_p_1': 0x08034a74,
+        'init_data': 0x08034a66,
+        'configure': 0x0802432c,
+        'apply_rx_iq_offset': 0x0802494c,
+        'compress': 0x08025388,
+        'tx_amp': 0x080253fa,
+        'tx_coeff_calc': 0x08023e18,
+        'am_fm_rx_process': 0x08028b8e,
+        'anf_update': 0x08025bc8,
+        'build_time': 0x0803cebc,
+    },
+}
 
-def compile_patch_helper(asm, o_file):
-    cmd = f"arm-none-eabi-as {asm} -o {o_file}"
+def compile_patch_helper(asm, o_file, date):
+    cmd = f"arm-none-eabi-as {asm} -o {o_file} --defsym BUILD_DATE={date}"
     print("Call:", cmd)
     subprocess.check_call(shlex.split(cmd))
 
@@ -218,8 +251,16 @@ class InjectFunctions:
 
 
 def main():
-    with open("firmwares/X6100_BBFW_V1.1.6_221112001_p160.bin", "rb") as f:
+    import os
+    import sys
+    import hashlib
+
+    with open(sys.argv[1], "rb") as f:
         orig_code = f.read()
+
+    hashsum = hashlib.md5(orig_code).hexdigest()
+    patchset = patchsets[hashsum]
+
     with open(f"build/Release/{prog_name}.bin", "rb") as f:
         patched_code = f.read()
 
@@ -229,7 +270,7 @@ def main():
     # value from reset_handler and first 4 bytes from firmware
     stack_p_addr = 0x20030000
     stack_p_0 = flash_offset
-    stack_p_1 = 0x08032dbc
+    stack_p_1 = patchset["stack_p_1"]
     # 656 is a len of data struct for injected functions
     stack_new_p = stack_p_addr - 656
 
@@ -237,17 +278,17 @@ def main():
 
     asm = "asm/helper.s"
     o_file = "asm/helper.o"
-    compile_patch_helper(asm, o_file)
+    compile_patch_helper(asm, o_file, date=patchset["date"])
 
     functions = InjectFunctions([
-        InjectFunction("init_data", 0x08032dae),  # fill ram area with zeros
-        InjectFunction("configure", 0x08023c36),  # configure state at start of DMA handler
-        InjectFunction("apply_rx_iq_offset", 0x080241ac),  # Convert IQ to float and apply an offsets
-        InjectFunction("compress", 0x08024b06, copy_replaced=True),  # compress, limit TX signal
-        InjectFunction("tx_amp", 0x08024b6e),  # amp IQ according to configured TX power
-        InjectFunction("tx_coeff_calc", 0x080237ae, rodata_vars=("tx_coeffs_corr_table",)),  # update coefficients for IQ on TX power change
-        InjectFunction("am_fm_rx_process", 0x08027de0),  # process AM/FM rx (sql, dc blocker)
-        InjectFunction("anf_update", 0x080251f0),  # update notch filter params
+        InjectFunction("init_data", patchset["init_data"]),  # fill ram area with zeros
+        InjectFunction("configure", patchset["configure"]),  # configure state at start of DMA handler
+        InjectFunction("apply_rx_iq_offset", patchset["apply_rx_iq_offset"]),  # Convert IQ to float and apply an offsets
+        InjectFunction("compress", patchset["compress"], copy_replaced=True),  # compress, limit TX signal
+        InjectFunction("tx_amp", patchset["tx_amp"]),  # amp IQ according to configured TX power
+        InjectFunction("tx_coeff_calc", patchset["tx_coeff_calc"], rodata_vars=("tx_coeffs_corr_table",)),  # update coefficients for IQ on TX power change
+        InjectFunction("am_fm_rx_process", patchset["am_fm_rx_process"]),  # process AM/FM rx (sql, dc blocker)
+        InjectFunction("anf_update", patchset["anf_update"]),  # update notch filter params
     ], asm_o_file=o_file, flash_offset=flash_offset, orig_fw_size=len(orig_code))
 
     # rodata_start, rodata_end = get_block_start_end("sin_100", "rodata")
@@ -280,10 +321,11 @@ def main():
     ver = "r6"
     build_time = ver.encode() + bytes(11 - len(ver))
     assert len(build_time) < 12
-    build_time_addr = 0x0803b204 - flash_offset
+    build_time_addr = patchset['build_time'] - flash_offset
     dst[build_time_addr: build_time_addr + len(build_time)] = build_time
 
-    with open(f"firmwares/X6100_BBFW_V1.1.6_221112001_{ver}.bin", "wb") as f:
+    fn, ext = os.path.splitext(sys.argv[1])
+    with open(f"{fn}_{ver}{ext}", "wb") as f:
         f.write(dst)
 
 
