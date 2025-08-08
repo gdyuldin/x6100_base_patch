@@ -1,4 +1,5 @@
 #include "compressor.h"
+#include "offsets.h"
 
 #include "math.h"
 #include "stdbool.h"
@@ -207,7 +208,7 @@ typedef struct {
 
 } __attribute__ ((aligned (16))) data_t;
 
-#define DATA_P (0x20030000 - sizeof(data_t))
+#define DATA_P (STACK_ADDR - sizeof(data_t))
 
 static data_t *data = (data_t*)DATA_P;
 
@@ -234,41 +235,42 @@ __section(".rodata.tx_coeffs_corr_table") const float tx_coeffs_corr_table[23] =
  */
 
 // Modulation pointer
-static enum mod_t *modulation = (enum mod_t *)0x2000a8cd;
+static enum mod_t *modulation = (enum mod_t *)MODULATION_ADDR;
 
 // Compressor values
-static uint8_t *cmp_enabled = (uint8_t *)0x200000c4;
-static uint8_t *cmp_level = (uint8_t *)0x200000c3;
+static uint8_t *cmp_enabled = (uint8_t *)CMP_ENABLED_VALUE;
+static uint8_t *cmp_level = (uint8_t *)CMP_LEVEL_VALUE;
 
 // Squelch value
-static uint8_t *sql = (uint8_t *)0x200000a9;
+static uint8_t *sql = (uint8_t *)SQL_VALUE;
 
 // UART flow fields
-static uint32_t *flow_reserved_3 = (uint32_t*)0x200013f8;
+static uint32_t *flow_reserved_3 = (uint32_t*)FLOW_RESERVED_ADDR;
 
 
 // I2C registers values start pointer
-static uint32_t *i2c_regs = (uint32_t *)0x2000357c;
+static uint32_t *i2c_regs = (uint32_t *)I2C_REGS_ADDR;
 
-static volatile uint8_t *tx_flag = (uint8_t *)0x2000a8cf;
+static volatile uint8_t *tx_flag = (uint8_t *)TX_FLAG_VALUE;
 
-static float *am_carrier_lvl = (float *)0x2000a174;
+static float *am_carrier_lvl = (float *)AM_CARRIER_LEVEL_VALUE;
 
 
 /**
  * Declarations of compiled in OEM functions
  */
 extern void arm_fill_f32 (float val, float* data, uint32_t size) __attribute__((noinline, section(".arm_fill_f32_sec")));
+extern float arm_sqrt_f32 (float val) __attribute__((noinline, section(".arm_sqrt_f32_sec")));
 
 /**
  * Db <-> linear conversion
  */
 
-inline float db2lin(float val) {
+inline __attribute__((always_inline)) float db2lin(float val) {
     return powf10_c(val / 20.0f);
 }
 
-inline float lin2db(float val) {
+inline __attribute__((always_inline)) float lin2db(float val) {
     return 20.0f * log10f_c(val + 1e-16f);
 }
 
@@ -341,7 +343,7 @@ static inline void update_comp_params() {
     }
 }
 
-void update_anf_params() {
+static inline void update_anf_params() {
     if (i2c_regs[x6100_dnfcnt_dnfwidth_dnfe] != data->anf.i2c_reg_val) {
         data->anf.i2c_reg_val = i2c_regs[x6100_dnfcnt_dnfwidth_dnfe];
         data->anf.enabled = (data->anf.i2c_reg_val >> 25) & 1;
@@ -349,9 +351,9 @@ void update_anf_params() {
 }
 
 inline static void fast_iq_offset_counter_setup() {
-    int32_t *input_data = *(int32_t **)0x200003b0;
+    int32_t *input_data = *(int32_t **)INPUT_DATA_ADDR;
     // int32_t *input_data = (int32_t *)0x20003e94;
-    uint32_t samples_count = *(uint32_t*)0x2000dd58;
+    uint32_t samples_count = *(uint32_t*)SAMPLES_COUNT_VALUE;
 
     // Increase counter
     if (data->rx_iq_corr.step <= 800) {
@@ -514,13 +516,12 @@ void apply_rx_iq_offset(void) {
     }
 }
 
-
 /**
  * Set IQ scale on changing TX power
  */
 __noinline void tx_coeff_calc(float pwr) {
-    float *am_depth_of_mod = (float *)0x2000a178;
-    float *fm_depth_of_mod = (float *)0x2000a184;
+    float *am_depth_of_mod = (float *)AM_DEPTH_OF_MOD_VALUE;
+    float *fm_depth_of_mod = (float *)FM_DEPTH_OF_MOD_VALUE;
     float k;
     float dac_gain_offset = (int8_t)(i2c_regs[x6100_rfg_txpwr] >> 16) * 0.2f;
 #ifdef PER_BAND_OUT_POWER
@@ -540,7 +541,11 @@ __noinline void tx_coeff_calc(float pwr) {
         if (pow_scale <= 0.0f) {
             k = 1.0f;
         } else {
+#ifdef USE_MATH_SQRT
             k = sqrtf(pow_scale);
+#else
+            k = arm_sqrt_f32(pow_scale);
+#endif
         }
     } else {
         k = 1.0f;
@@ -548,14 +553,14 @@ __noinline void tx_coeff_calc(float pwr) {
     // set coeffs
     k *= data->dac_output_coeff;
     // calibrate FM to 10W with 0 gain offset
-    data->tx_amp_coeffs.fm = 8.12e-2f * k;
+    data->tx_amp_coeffs.fm = 8.12e-2f * k * TX_AMP_COEFFS_MULTIPLIER;
 
     // AM carrier ~= fm / 2 ** 0.5 / 2
     // 25 % of output power is a carrier
     // 6W (7w wo limiter) output with unity input sine 1000 Hz. Will add 1.291 scale for both carrier and signal
     // float am_k = 1.291f;
     // float am_k = 1.195f;
-    float am_k = 1.0f;
+    float am_k = 1.0f * TX_AMP_COEFFS_MULTIPLIER;
     if (data->swr_scan) {
         *am_carrier_lvl = 0.75f;
     } else {
@@ -565,7 +570,7 @@ __noinline void tx_coeff_calc(float pwr) {
 
     data->tx_amp_coeffs.ssb = k;
     // data->tx_amp_coeffs.fm = 7.6e-2f * k;
-    data->tx_amp_coeffs.cw = 6.04e-2f * k;
+    data->tx_amp_coeffs.cw = 6.04e-2f * k * TX_AMP_COEFFS_MULTIPLIER;
 
     // for 2.5 w carrier at 10w output
     // *am_carrier_lvl = 0.025f * k;
@@ -624,7 +629,11 @@ __attribute__((noinline, optimize("O2"))) float compress(float val) {
     float rms;
     float squared_mean = data->comp.squared_sum / data->comp.squared_acc.size;
     if (squared_mean >= 0) {
-        rms = sqrtf(squared_mean);
+#ifdef USE_MATH_SQRT
+            rms = sqrtf(squared_mean);
+#else
+            rms = arm_sqrt_f32(squared_mean);
+#endif
     } else {
         rms = 0.0f;
     }
@@ -728,6 +737,9 @@ void arm_fill_f32 (float val, float* data, uint32_t size) {
     return;
 }
 
+float arm_sqrt_f32 (float v) {
+    return sqrtf(v);
+}
 
 /**
  * Process AM/FM rx signal after demodulation
@@ -736,8 +748,8 @@ float am_fm_rx_process(float val, float *i, float *q, uint8_t modulation) {
     // data_t *data = (data_t*)DATA_P;
 
     // Clear val array and fir decim state on change modulation
-    arm_fir_decimate_instance_f32 *S = (arm_fir_decimate_instance_f32*)0x20008e74;
-    float *val_acc = (float *)0x20008fa8;
+    arm_fir_decimate_instance_f32 *S = (arm_fir_decimate_instance_f32*)ARM_FIR_DECIMATE_INSTANCE_ADDR;
+    float *val_acc = (float *)VAL_ACC_ARRAY;
 
     if (data->prev_modulation != modulation) {
         data->prev_modulation = modulation;
@@ -798,7 +810,7 @@ typedef struct
 
 
 void anf_update() {
-    arm_biquad_casd_df1_inst_f32 *flt = (arm_biquad_casd_df1_inst_f32 *)0x2000d994;
+    arm_biquad_casd_df1_inst_f32 *flt = (arm_biquad_casd_df1_inst_f32 *)ARM_BIQUAD_CASD_DF1_INST_VALUE;
     const float k = 3e-3f;
 
     if (data->anf.enabled) {

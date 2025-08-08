@@ -47,7 +47,7 @@ const float __log10f_lut[8] = {
 	0.006135635201050,		//p7
 };
 
-inline float log10f_c(float x)
+inline __attribute__((always_inline)) float log10f_c(float x)
 {
 	float a, b, c, d, xx;
 	int m;
