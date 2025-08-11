@@ -1,7 +1,8 @@
 import os
 import shlex
-import pathlib
+import string
 import subprocess
+
 import numpy as np
 
 # calc tx_audio: start patch s15 - result
@@ -30,11 +31,14 @@ patchsets = {
         'am_fm_rx_process': 0x08027de0,
         'anf_update': 0x080251f0,
         'build_time': 0x0803b204,
-        'arm_fill_f32': 0x08032dd8,
-        'arm_biquad_cascade_df1_f32': 0x0803436c,
-        'print_str': 0x08035bf4,
+        'external_fn': {
+            'setup_biquad_filter': 0x080216f8,
+            'arm_fill_f32': 0x08032dd8,
+            'arm_biquad_cascade_df1_f32': 0x0803436c,
+            'arm_sqrt_f32': 0x0803a41c,
+            'print_str': 0x08035bf4,
+        },
         'end_oem_fw_offset': 0x0807df34,
-        'arm_sqrt_f32': 0x0803a41c,
     },
     # X6100_BBFW_V1.1.6_230307001.bin
     'f19fb85db1f74ad10eb379927880519c': {
@@ -52,26 +56,36 @@ patchsets = {
         'am_fm_rx_process': 0x08028b8e,
         'anf_update': 0x08025bc8,
         'build_time': 0x0803cebc,
-        'arm_fill_f32': 0x08034a90,
-        'arm_biquad_cascade_df1_f32': 0x08036024,
-        'print_str': 0x080378ac,
+        'external_fn': {
+            'setup_biquad_filter': 0x08021764,
+            'arm_fill_f32': 0x08034a90,
+            'arm_biquad_cascade_df1_f32': 0x08036024,
+            'print_str': 0x080378ac,
+            'arm_sqrt_f32': 0x0803c0d4,
+        },
         'end_oem_fw_offset': 0x807fbf4,
-        'arm_sqrt_f32': 0x0803c0d4,
     },
 }
 
-def make_stm32f_ld_file(patchset):
+
+def make_stm32f_ld_file(patchset: dict):
     with open("stm32f427zgtx_flash.ld.format") as f:
-        src = f.read()
-    replaces = dict(ARM_FILL_F32_ADDR="arm_fill_f32",
-                    ARM_BIQUAD_CASCADE_DF1_F32_ADDR="arm_biquad_cascade_df1_f32",
-                    ARM_SQRT_F32_ADDR="arm_sqrt_f32",
-                    PRINT_STR_ADDR="print_str",
-                    END_OEM_FW_OFFSET="end_oem_fw_offset")
-    for k, i in replaces.items():
-        src = src.replace(k, hex(patchset[i]))
+        tpl = string.Template(f.read())
+
+    external_fn = sorted(patchset['external_fn'].items(), key=lambda x: x[1])
+    external_functions = []
+    for fn_name, addr in external_fn:
+        external_functions.append(f". = 0x{addr:08x} - start_text;")
+        external_functions.append(f"*(.{fn_name}_sec)")
+    mapping = {
+        "EXTERNAL_FUNCTIONS": "\n".join(external_functions),
+        "END_OEM_FW_OFFSET": patchset['end_oem_fw_offset'],
+    }
+    text = tpl.substitute(mapping)
+
     with open("stm32f427zgtx_flash.ld", "w") as f:
-        f.write(src)
+        f.write(text)
+
 
 def compile_c_binaries(date):
     cmd = "mkdir -p build/Release"
@@ -287,9 +301,9 @@ class InjectFunctions:
 
 
 def main():
+    import hashlib
     import os
     import sys
-    import hashlib
 
     with open(sys.argv[1], "rb") as f:
         orig_code = f.read()
@@ -364,8 +378,10 @@ def main():
     dst[build_time_addr: build_time_addr + len(build_time)] = build_time
 
     fn, ext = os.path.splitext(sys.argv[1])
-    with open(f"{fn}_{ver}{ext}", "wb") as f:
+    dst_file = f"{fn}_{ver}{ext}"
+    with open(dst_file, "wb") as f:
         f.write(dst)
+    print(f"{dst_file} saved")
 
 
 if __name__ == "__main__":

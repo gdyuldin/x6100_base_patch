@@ -83,30 +83,14 @@ SECTIONS
     /* Set BB functions*/
     start_text = ABSOLUTE(.);
 
-    arm_fill_f32_addr = ARM_FILL_F32_ADDR;
-    arm_biquad_cascade_df1_f32_addr = ARM_BIQUAD_CASCADE_DF1_F32_ADDR;
-    arm_sqrt_f32_addr = ARM_SQRT_F32_ADDR;
-    printStr_addr = PRINT_STR_ADDR;
-
-    . += arm_fill_f32_addr - start_text;
-    *(.arm_fill_f32_sec)
-
-    /* . = arm_biquad_cascade_df1_f32_addr - start_text;
-    *(.arm_biquad_cascade_df1_f32_sec) */
-
-    . = printStr_addr - start_text;
-    *(.printStr_sec)
-
-    . = arm_sqrt_f32_addr - start_text;
-    *(.arm_sqrt_f32_sec)
+    ${EXTERNAL_FUNCTIONS}
 
     . = ALIGN(4);
 
     *(.text)           /* .text sections (code) */
 
     /* Set new functions with offset for asm code */
-    end_oem_fw = END_OEM_FW_OFFSET;
-    . = end_oem_fw - start_text + 64;
+    . = ${END_OEM_FW_OFFSET} - start_text + 64;
     . = ALIGN(4);
     *(.text*)          /* .text* sections (code) */
     *(.rodata.tx_coeffs_corr_table)

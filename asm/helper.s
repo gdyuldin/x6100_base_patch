@@ -37,9 +37,9 @@ _configure_wrapper:
 
   vpush {s0}
   vpush {s8-s15}
-  push {r0-r4, ip, lr}
+  push {r0-r5, ip, lr}
   bl _configure
-  pop {r0-r4, ip, lr}
+  pop {r0-r5, ip, lr}
   vpop {s8-s15}
   vpop {s0}
 

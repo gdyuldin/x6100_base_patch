@@ -34,6 +34,10 @@ enable_language(C ASM)
 project(${CMAKE_PROJECT_NAME})
 message("Build type: " ${CMAKE_BUILD_TYPE})
 
+if(NOT TARGET_BUILD_DATE)
+    set(TARGET_BUILD_DATE 221112001)
+endif()
+
 add_compile_definitions("BUILD_DATE=${TARGET_BUILD_DATE}")
 
 # Create an executable object type

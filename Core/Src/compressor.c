@@ -62,7 +62,7 @@
 
 
 /**
- * Limir constants
+ * Limiter constants
  */
 #define LIMITER_MAX_VAL 0.00741f
 
@@ -202,6 +202,9 @@ typedef struct {
     uint8_t tx_flag;
     bool swr_scan;
     uint8_t band_id;
+
+    uint16_t tx_filter_low;
+    uint16_t tx_filter_high;
     /* Debug and pad */
     // tone
     uint32_t tone_step;
@@ -259,8 +262,10 @@ static float *am_carrier_lvl = (float *)AM_CARRIER_LEVEL_VALUE;
 /**
  * Declarations of compiled in OEM functions
  */
-extern void arm_fill_f32 (float val, float* data, uint32_t size) __attribute__((noinline, section(".arm_fill_f32_sec")));
-extern float arm_sqrt_f32 (float val) __attribute__((noinline, section(".arm_sqrt_f32_sec")));
+extern void arm_fill_f32(float val, float *data, uint32_t size) __attribute__((noinline, section(".arm_fill_f32_sec")));
+extern float arm_sqrt_f32(float val) __attribute__((noinline, section(".arm_sqrt_f32_sec")));
+extern void setup_biquad_filter(float sampling_rate, float freq_low, float freq_high,
+                                 void *flt_S, int param_5) __attribute__((noinline, section(".setup_biquad_filter_sec")));
 
 /**
  * Db <-> linear conversion
@@ -350,9 +355,18 @@ static inline void update_anf_params() {
     }
 }
 
+static inline void update_tx_filter_params() {
+    float rate = *(float *)TX_SAMPLING_RATE_12_5;
+    void *flt_S = (void *)BIQUAD_TX_FLT_INST;
+    // TODO: make configurable
+    if (data->tx_filter_low != 160) {
+        data->tx_filter_low = 160;
+        setup_biquad_filter(rate, data->tx_filter_low, 3000.0f, flt_S, 1);
+    }
+}
+
 inline static void fast_iq_offset_counter_setup() {
-    int32_t *input_data = *(int32_t **)INPUT_DATA_ADDR;
-    // int32_t *input_data = (int32_t *)0x20003e94;
+    int32_t *input_data = *(int32_t **)INPUT_RF_SIGNAL_INT_ADDR;
     uint32_t samples_count = *(uint32_t*)SAMPLES_COUNT_VALUE;
 
     // Increase counter
@@ -439,6 +453,7 @@ __attribute__((optimize("O1"))) void init_data(void) {
 void configure() {
     update_comp_params();
     update_anf_params();
+    update_tx_filter_params();
     bool update_tx_coeffs = false;
     // Update power-related coefficients, if power was changed
     if (i2c_regs[x6100_rfg_txpwr] != data->tx_amp_coeffs.i2c_pwr_reg) {
@@ -541,11 +556,7 @@ __noinline void tx_coeff_calc(float pwr) {
         if (pow_scale <= 0.0f) {
             k = 1.0f;
         } else {
-#ifdef USE_MATH_SQRT
-            k = sqrtf(pow_scale);
-#else
             k = arm_sqrt_f32(pow_scale);
-#endif
         }
     } else {
         k = 1.0f;
@@ -553,14 +564,14 @@ __noinline void tx_coeff_calc(float pwr) {
     // set coeffs
     k *= data->dac_output_coeff;
     // calibrate FM to 10W with 0 gain offset
-    data->tx_amp_coeffs.fm = 8.12e-2f * k * TX_AMP_COEFFS_MULTIPLIER;
+    data->tx_amp_coeffs.fm = 8.12e-2f * k;
 
     // AM carrier ~= fm / 2 ** 0.5 / 2
     // 25 % of output power is a carrier
     // 6W (7w wo limiter) output with unity input sine 1000 Hz. Will add 1.291 scale for both carrier and signal
     // float am_k = 1.291f;
     // float am_k = 1.195f;
-    float am_k = 1.0f * TX_AMP_COEFFS_MULTIPLIER;
+    float am_k = 1.0f;
     if (data->swr_scan) {
         *am_carrier_lvl = 0.75f;
     } else {
@@ -570,7 +581,7 @@ __noinline void tx_coeff_calc(float pwr) {
 
     data->tx_amp_coeffs.ssb = k;
     // data->tx_amp_coeffs.fm = 7.6e-2f * k;
-    data->tx_amp_coeffs.cw = 6.04e-2f * k * TX_AMP_COEFFS_MULTIPLIER;
+    data->tx_amp_coeffs.cw = 6.04e-2f * k;
 
     // for 2.5 w carrier at 10w output
     // *am_carrier_lvl = 0.025f * k;
@@ -629,11 +640,7 @@ __attribute__((noinline, optimize("O2"))) float compress(float val) {
     float rms;
     float squared_mean = data->comp.squared_sum / data->comp.squared_acc.size;
     if (squared_mean >= 0) {
-#ifdef USE_MATH_SQRT
-            rms = sqrtf(squared_mean);
-#else
-            rms = arm_sqrt_f32(squared_mean);
-#endif
+        rms = arm_sqrt_f32(squared_mean);
     } else {
         rms = 0.0f;
     }
@@ -739,6 +746,12 @@ void arm_fill_f32 (float val, float* data, uint32_t size) {
 
 float arm_sqrt_f32 (float v) {
     return sqrtf(v);
+}
+
+void setup_biquad_filter(float sampling_rate,float freq_low,float freq_high,
+                         void *flt_S, int param_5) {
+    float *flt_Sf = (float *)flt_S;
+    *flt_Sf = sampling_rate * freq_low * freq_high * param_5;
 }
 
 /**
