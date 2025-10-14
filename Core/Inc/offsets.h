@@ -22,6 +22,19 @@
 #define ARM_BIQUAD_CASD_DF1_INST_VALUE  (0x2000d994)
 #define TX_SAMPLING_RATE_12_5           (0x2000dd64)
 #define BIQUAD_TX_FLT_INST              (0x20009aa8)
+#define STOP_COPY_FLOW                  (0x20007128)
+#define FREQ_PLUS_RIT                   (0x200000f0)
+#define FLOW_SAMPLES_COUNTER            (0x2000712c)
+#define FLOW_SAMPLES_CPLX               (0x20007130)
+#define FLOW_N_SAMPLES                  (0x2000dd5c)
+
+// uint32_t copy_flow_samples_to_arg(float *p_Dst) - 08022658
+
+// x6100_flow - 200003e4
+
+// To replace with custom FN
+//    08032128 f0 f7 96 fa     bl      copy_flow_samples_to_arg            uint32_t copy_flow_sam
+
 
 #elif BUILD_DATE == 230307001
 
@@ -42,6 +55,24 @@
 #define ARM_BIQUAD_CASD_DF1_INST_VALUE  (0x2000d99c)
 #define TX_SAMPLING_RATE_12_5           (0x2000dd6c)
 #define BIQUAD_TX_FLT_INST              (0x20009ab0)
+#define STOP_COPY_FLOW                  (0x20007130)
+#define FREQ_PLUS_RIT                   (0x200000f0)
+#define FLOW_SAMPLES_COUNTER            (0x20007134)
+#define FLOW_SAMPLES_CPLX               (0x20007138)
+#define FLOW_N_SAMPLES                  (0x2000dd64)
+
+
+// uint32_t copy_flow_samples_to_arg(float *p_Dst) - 080227e0
+
+// flow_samples_cplx - 20007138
+
+// uint32_t_2000dd5c_512 - 2000dd64
+
+// x6100_flow - 200003ec
+
+// To replace with custom FN
+//    08033c88 ee f7 aa fd     bl      copy_flow_samples_to_arg            uint32_t copy_flow_sam
+
 
 #endif
 

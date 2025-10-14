@@ -103,6 +103,7 @@ int main(void)
     apply_rx_iq_offset();
     GPIOA->IDR;
     anf_update();
+    copy_flow_samples_to_arg(&a);
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */

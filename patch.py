@@ -1,7 +1,9 @@
+import hashlib
 import os
 import shlex
 import string
 import subprocess
+import sys
 
 import numpy as np
 
@@ -30,12 +32,14 @@ patchsets = {
         'tx_coeff_calc': 0x080237ae,
         'am_fm_rx_process': 0x08027de0,
         'anf_update': 0x080251f0,
+        'copy_flow': 0x08032128,
         'build_time': 0x0803b204,
         'external_fn': {
             'setup_biquad_filter': 0x080216f8,
             'arm_fill_f32': 0x08032dd8,
             'arm_biquad_cascade_df1_f32': 0x0803436c,
             'arm_sqrt_f32': 0x0803a41c,
+            'arm_copy_f32': 0x08032e14,
             'print_str': 0x08035bf4,
         },
         'end_oem_fw_offset': 0x0807df34,
@@ -55,6 +59,7 @@ patchsets = {
         'tx_coeff_calc': 0x08023e18,
         'am_fm_rx_process': 0x08028b8e,
         'anf_update': 0x08025bc8,
+        'copy_flow': 0x08033c88,
         'build_time': 0x0803cebc,
         'external_fn': {
             'setup_biquad_filter': 0x08021764,
@@ -62,8 +67,22 @@ patchsets = {
             'arm_biquad_cascade_df1_f32': 0x08036024,
             'print_str': 0x080378ac,
             'arm_sqrt_f32': 0x0803c0d4,
+            'arm_copy_f32': 0x08034acc,
+            'arm_fir_decimate_f32': 0x08035cac,
         },
         'end_oem_fw_offset': 0x807fbf4,
+        'filter_data': {
+            'ssb_cw_decim_interp': {
+                'coeffs_addr': 0x0803d82c,
+                'numTaps': 64,
+                'file': 'fir_ssb_cw_8.txt'
+            },
+            'am_fm_decim_interp': {
+                'coeffs_addr': 0x0803d92c,
+                'numTaps': 36,
+                'file': 'fir_am_fm_4.txt'
+            }
+        }
     },
 }
 
@@ -119,37 +138,6 @@ def get_patched_section(elf, section_name) -> bytes:
     cmd = shlex.split(f"arm-none-eabi-objcopy {elf} /dev/null --dump-section {section_name}=/dev/stdout")
     res = subprocess.check_output(cmd)
     return res
-
-
-def extend_bss(code, ebss_p, add_size):
-    ebss = np.frombuffer(code[ebss_p: ebss_p + 4], dtype=np.uint32)
-    ebss += add_size
-    code[ebss_p: ebss_p + 4] = ebss.tobytes()
-    return ebss
-
-def get_comp_struct_addr_p(placeholder=b"deadbeef"):
-    cmd = shlex.split(f"arm-none-eabi-objdump -S -z build/Release/{prog_name}.elf")
-    res = subprocess.check_output(cmd)
-    addr = None
-    in_comp_fn = False
-    for line in res.splitlines():
-        if not in_comp_fn and line.endswith(b" <compress>:"):
-            in_comp_fn = True
-            continue
-        if not in_comp_fn:
-            continue
-        if not line.strip():
-            break
-        if b".word" not in line:
-            continue
-        parts = line.split()
-        if parts[1] == placeholder:
-            if addr is not None:
-                raise RuntimeError("2 variables is not supported yet")
-            addr = int(parts[0][:-1], 16)
-    if addr is None:
-        raise RuntimeError("Variable addr is not found")
-    return addr
 
 
 def get_block_start_end(name, section_prefix="text"):
@@ -210,14 +198,13 @@ def print_used_registers(fn_name="compress"):
 
 
 class InjectFunction:
-    def __init__(self, name, inject_addr, copy_replaced=False, rodata_vars=(), return_addr=None):
+    def __init__(self, name, inject_addr, copy_replaced=False, return_addr=None):
         self.name = name
         self.inject_addr = inject_addr
         self.copy_replaced = copy_replaced
         self.start_addr, self.end_addr = get_block_start_end(name)
         self.wrapper_len = 0
         self.insert_code = b""
-        self.rodata_vars = () or rodata_vars
         if return_addr is None:
             self.return_addr = inject_addr + 4
         else:
@@ -236,11 +223,13 @@ class InjectFunction:
 
 
 class InjectFunctions:
-    def __init__(self, functions: list[InjectFunction], asm_o_file, flash_offset, orig_fw_size) -> None:
+    def __init__(self, functions: list[InjectFunction], asm_o_file, flash_offset, orig_fw_size, rodata_start, rodata_end) -> None:
         self.functions = functions
         self.flash_offset = flash_offset
         self.sections = {}
-        self.new_code_end = 0
+        self.rodata_start = rodata_start
+        self.rodata_end = rodata_end
+        self.new_code_end = rodata_end
         accumulated_size = 0
         for fn in self.functions:
             fn.setup_wrapper_len(asm_o_file)
@@ -252,10 +241,6 @@ class InjectFunctions:
             })
             accumulated_size += fn.wrapper_len
             self.new_code_end = max(self.new_code_end, fn.end_addr)
-            for var_name in fn.rodata_vars:
-                _, va_end_addr = get_block_start_end(var_name, section_prefix="rodata")
-                self.new_code_end = max(self.new_code_end, va_end_addr)
-        # perhaps, add rodata to self code end
 
     def setup_insert_code(self, asm_elf):
         for fn in self.functions:
@@ -268,12 +253,9 @@ class InjectFunctions:
             dst[start: end] = src[start: end]
 
     def copy_rodata(self, src: bytes, dst: bytearray):
-        for fn in self.functions:
-            for var_name in fn.rodata_vars:
-                start_addr, end_addr = get_block_start_end(var_name, section_prefix="rodata")
-                start = start_addr - self.flash_offset
-                end = end_addr - self.flash_offset
-                dst[start: end] = src[start: end]
+        start = self.rodata_start - self.flash_offset
+        end = self.rodata_end - self.flash_offset
+        dst[start: end] = src[start: end]
 
     def copy_wrappers(self, asm_elf, dst: bytearray):
         for fn in self.functions:
@@ -300,11 +282,16 @@ class InjectFunctions:
             dst[from_offset + 4: from_offset + 4 + len(gap)] = gap
 
 
-def main():
-    import hashlib
-    import os
-    import sys
+def update_filters(dst: bytearray, flash_offset, addr, path, numTaps):
+    data = np.loadtxt(path, dtype=np.float32)
+    assert len(data) == numTaps
+    # Reverse (for CMSIS-DSP)
+    data = data[::-1]
+    data = data.tobytes()
+    dst[addr - flash_offset: addr - flash_offset + len(data)] = data
 
+
+def main():
     with open(sys.argv[1], "rb") as f:
         orig_code = f.read()
 
@@ -324,8 +311,8 @@ def main():
     stack_p_addr = 0x20030000
     stack_p_0 = flash_offset
     stack_p_1 = patchset["stack_p_1"]
-    # 656 is a len of data struct for injected functions
-    stack_new_p = stack_p_addr - 672
+    # 688 is a len of data struct for injected functions
+    stack_new_p = stack_p_addr - 9744
 
     # arm-none-eabi-objdump -S build/Release/CMakeFiles/test_patch.dir/Core/Src/compressor.c.obj
 
@@ -333,18 +320,19 @@ def main():
     o_file = "asm/helper.o"
     compile_patch_helper(asm, o_file, date=patchset["date"])
 
+    rodata_start, rodata_end = get_block_start_end("patch_data", "rodata")
+
     functions = InjectFunctions([
         InjectFunction("init_data", patchset["init_data"]),  # fill ram area with zeros
         InjectFunction("configure", patchset["configure"]),  # configure state at start of DMA handler
         InjectFunction("apply_rx_iq_offset", patchset["apply_rx_iq_offset"]),  # Convert IQ to float and apply an offsets
         InjectFunction("compress", patchset["compress"], copy_replaced=True),  # compress, limit TX signal
         InjectFunction("tx_amp", patchset["tx_amp"]),  # amp IQ according to configured TX power
-        InjectFunction("tx_coeff_calc", patchset["tx_coeff_calc"], rodata_vars=("tx_coeffs_corr_table",)),  # update coefficients for IQ on TX power change
+        InjectFunction("tx_coeff_calc", patchset["tx_coeff_calc"]),  # update coefficients for IQ on TX power change
         InjectFunction("am_fm_rx_process", patchset["am_fm_rx_process"]),  # process AM/FM rx (sql, dc blocker)
         InjectFunction("anf_update", patchset["anf_update"]),  # update notch filter params
-    ], asm_o_file=o_file, flash_offset=flash_offset, orig_fw_size=len(orig_code))
-
-    # rodata_start, rodata_end = get_block_start_end("sin_100", "rodata")
+        InjectFunction("copy_flow", patchset["copy_flow"]),  # copy data samples to flow with changes
+    ], asm_o_file=o_file, flash_offset=flash_offset, orig_fw_size=len(orig_code), rodata_start=rodata_start, rodata_end=rodata_end)
 
     elf = "asm/helper.elf"
     link_patch_helper(o_file, elf, flash_offset, **functions.sections)
@@ -371,10 +359,20 @@ def main():
     # insert jumps
     functions.insert_jumps(dst)
 
-    ver = "r7"
+    # Update filters
+    for name, filter_params in patchset["filter_data"].items():
+        print("Update filters for", name)
+        update_filters(dst,
+            flash_offset,
+            filter_params['coeffs_addr'],
+            filter_params['file'], filter_params['numTaps']
+        )
+
+    ver = "r8"
     build_time = ver.encode() + bytes(11 - len(ver))
     assert len(build_time) < 12
     build_time_addr = patchset['build_time'] - flash_offset
+    print(build_time_addr)
     dst[build_time_addr: build_time_addr + len(build_time)] = build_time
 
     fn, ext = os.path.splitext(sys.argv[1])

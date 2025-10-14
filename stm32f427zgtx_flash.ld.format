@@ -93,7 +93,7 @@ SECTIONS
     . = ${END_OEM_FW_OFFSET} - start_text + 64;
     . = ALIGN(4);
     *(.text*)          /* .text* sections (code) */
-    *(.rodata.tx_coeffs_corr_table)
+    *(.rodata.patch_data)
 
     *(.glue_7)         /* glue arm to thumb code */
     *(.glue_7t)        /* glue thumb to arm code */

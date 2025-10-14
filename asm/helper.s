@@ -260,3 +260,26 @@ _anf_update_wrapper:
 .section .anf_update, "ax"
 _anf_update:
   nop
+
+
+/*
+*** Copy flow block ***
+
+  Called with TIM, used to send adjacent samples
+
+   08033c88 ee f7 aa fd     bl      copy_flow_samples_to_arg            uint32_t copy_flow_sam
+   args - r0
+   return -r0 (ignored)
+*/
+
+.section .insert_to_copy_flow, "ax"
+_jump_to_copy_flow_wrapper:
+  bl _copy_flow
+
+.section .copy_flow_wrapper, "ax"
+_copy_flow_wrapper:
+  nop
+
+.section .copy_flow, "ax"
+_copy_flow:
+  nop
