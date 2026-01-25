@@ -4,6 +4,7 @@ import shlex
 import string
 import subprocess
 import sys
+import tempfile
 
 import numpy as np
 
@@ -53,13 +54,20 @@ patchsets = {
         'stack_p_1': 0x08034a74,
         'init_data': 0x08034a66,
         'configure': 0x0802432c,
+        'dma_end': 0x08025b72,
         'apply_rx_iq_offset': 0x0802494c,
-        'compress': 0x08025388,
+        'if_shift': 0x08024ac8,
+        'tx_if_shift': 0x0802d320,
+        'compress': 0x0802539a,
+        'am_modulation': 0x08028608,
+        'fm_modulate': 0x08028634,
         'tx_amp': 0x080253fa,
         'tx_coeff_calc': 0x08023e18,
+        'fm_demodulate': 0x08028b56,
         'am_fm_rx_process': 0x08028b8e,
         'anf_update': 0x08025bc8,
         'copy_flow': 0x08033c88,
+        'process_i2c_cmd': 0x0802c1a0,
         'build_time': 0x0803cebc,
         'external_fn': {
             'setup_biquad_filter': 0x08021764,
@@ -69,6 +77,8 @@ patchsets = {
             'arm_sqrt_f32': 0x0803c0d4,
             'arm_copy_f32': 0x08034acc,
             'arm_fir_decimate_f32': 0x08035cac,
+            'arm_sin_f32': 0x08036394,
+            'arm_cos_f32': 0x0803641c,
         },
         'end_oem_fw_offset': 0x807fbf4,
         'filter_data': {
@@ -81,6 +91,11 @@ patchsets = {
                 'coeffs_addr': 0x0803d92c,
                 'numTaps': 36,
                 'file': 'fir_am_fm_4.txt'
+            },
+            'fir_decim_2_am_fm': {
+                'coeffs_addr': 0x0803d9bc,
+                'numTaps': 36,
+                'file': 'fir_decim_2.txt'
             }
         }
     },
@@ -144,7 +159,8 @@ def get_block_start_end(name, section_prefix="text"):
     with open(f"build/Release/{prog_name}.map") as f:
         while True:
             line = next(f)
-            if line.strip().startswith(f".{section_prefix}.{name}"):
+            line = line.strip()
+            if line.startswith(f".{section_prefix}.{name} ") or line == f".{section_prefix}.{name}":
                 if len(line.split()) == 1:
                     line = next(f)
                 else:
@@ -155,6 +171,39 @@ def get_block_start_end(name, section_prefix="text"):
                 print(f".{section_prefix}.{name} start: {start_addr:x}, end: {end_addr:x}, len: {(end_addr - start_addr):x}")
                 return start_addr, end_addr
 
+
+def get_rodata_start_end():
+    start_addr = None
+    with open(f"build/Release/{prog_name}.map") as f:
+        while True:
+            line = next(f)
+            if line.startswith(".rodata "):
+                start_addr = int(line.split()[1], 16)
+            elif start_addr and line.strip() and not line.startswith(" "):
+                try:
+                    end_addr = int(line.split()[1], 16)
+                except Exception as exc:
+                    print("Cant find rodata end:", exc)
+                    return start_addr, start_addr
+                else:
+                    print(f".rodata start: {start_addr:x}, end: {end_addr:x}, len: {(end_addr - start_addr):x}")
+                    return start_addr, end_addr
+
+
+def get_section_start(name):
+    """Returns start addr of the section (like *(.text*))"""
+    with open(f"build/Release/{prog_name}.map") as f:
+        prev_line = ""
+        while True:
+            line = next(f)
+            if line.strip() == name:
+                break
+            prev_line = line
+    start_addr = prev_line.strip().split()[0]
+    start_addr = int(start_addr, 16)
+    return start_addr
+
+
 def align(addr, val=4):
     return int(np.ceil(addr / val) * val)
 
@@ -162,7 +211,9 @@ def align(addr, val=4):
 def print_used_registers(fn_name="compress"):
     output = subprocess.check_output(shlex.split('arm-none-eabi-objdump -S -z build/Release/x6100_mcu.elf'))
     collect = False
+    line_counter = -1
     registers = {}
+    pushed_registers = []
     for line in output.splitlines():
         line = line.decode()
         if line.endswith(f'<{fn_name}>:'):
@@ -176,25 +227,33 @@ def print_used_registers(fn_name="compress"):
             continue
         if "\t.short\t" in line:
             continue
+        line_counter += 1
         parts = line.split("\t")
         if parts[2] == "bl":
             print("!!!bl call:", line)
+            continue
         if len(parts) < 4:
             continue
         if parts[2] == 'it':
             continue
+        cmd = parts[2]
         cmd_args = parts[3]
-        cmd_args = cmd_args.split(',')[0]
-        if fn_name in cmd_args:
+        cmd_args = cmd_args.split(',')
+        first_arg = cmd_args[0]
+        if fn_name in first_arg:
             continue
-        if cmd_args.startswith('APSR_'):
+        if first_arg.startswith('APSR_'):
             continue
-        cmd_args = cmd_args.strip("{}[]")
-        if cmd_args not in registers:
-            registers[cmd_args] = line
+        cmd_args = [x.strip("{}[] ") for x in cmd_args]
+        first_arg = cmd_args[0]
+        if line_counter == 0 and cmd == "push":
+            pushed_registers = cmd_args
+        if first_arg not in registers:
+            registers[first_arg] = line
     registers = sorted(registers.items(), key=lambda x: x[0])
     for k, l in registers:
-        print(k, l)
+        saved = k in pushed_registers
+        print(k, ["add", "skip"][int(saved)], l)
 
 
 class InjectFunction:
@@ -247,10 +306,16 @@ class InjectFunctions:
             fn.setup_insert_code(asm_elf)
 
     def copy_code(self, src: bytes, dst: bytearray):
-        for fn in self.functions:
-            start = fn.start_addr - self.flash_offset
-            end = fn.end_addr - self.flash_offset
-            dst[start: end] = src[start: end]
+        # Copy all from *(.text*) to main function
+        start = get_section_start("*(.text*)")
+        end, _ = get_block_start_end("Reset_Handler", "text")
+        start -= self.flash_offset
+        end -= self.flash_offset
+        dst[start: end] = src[start: end]
+        # for fn in self.functions:
+        #     start = fn.start_addr - self.flash_offset
+        #     end = fn.end_addr - self.flash_offset
+        #     dst[start: end] = src[start: end]
 
     def copy_rodata(self, src: bytes, dst: bytearray):
         start = self.rodata_start - self.flash_offset
@@ -308,11 +373,13 @@ def main():
     flash_offset = 0x08020000
 
     # value from reset_handler and first 4 bytes from firmware
-    stack_p_addr = 0x20030000
-    stack_p_0 = flash_offset
-    stack_p_1 = patchset["stack_p_1"]
-    # 688 is a len of data struct for injected functions
-    stack_new_p = stack_p_addr - 9744
+    # No need to move stack, patch uses CCM RAM
+    # stack_p_addr = 0x20030000
+    # stack_p_0 = flash_offset
+    # stack_p_1 = patchset["stack_p_1"]
+    # # offset is a len of data struct for injected functions
+    # stack_new_p = stack_p_addr - 131112
+
 
     # arm-none-eabi-objdump -S build/Release/CMakeFiles/test_patch.dir/Core/Src/compressor.c.obj
 
@@ -320,18 +387,25 @@ def main():
     o_file = "asm/helper.o"
     compile_patch_helper(asm, o_file, date=patchset["date"])
 
-    rodata_start, rodata_end = get_block_start_end("patch_data", "rodata")
+    rodata_start, rodata_end = get_rodata_start_end()
 
     functions = InjectFunctions([
         InjectFunction("init_data", patchset["init_data"]),  # fill ram area with zeros
         InjectFunction("configure", patchset["configure"]),  # configure state at start of DMA handler
+        InjectFunction("dma_end", patchset["dma_end"]),  # code for end of the DMA handler
         InjectFunction("apply_rx_iq_offset", patchset["apply_rx_iq_offset"]),  # Convert IQ to float and apply an offsets
-        InjectFunction("compress", patchset["compress"], copy_replaced=True),  # compress, limit TX signal
+        InjectFunction("if_shift", patchset["if_shift"]),  # Apply IF shift
+        InjectFunction("tx_if_shift", patchset["tx_if_shift"]),  # Handle IF shift on TX
+        InjectFunction("compress", patchset["compress"]),  # compress, limit TX signal
+        InjectFunction("am_modulation", patchset["am_modulation"]),  # soft limit AM signal and modulate
+        InjectFunction("fm_modulate", patchset["fm_modulate"]),  # fm modulation prepare
         InjectFunction("tx_amp", patchset["tx_amp"]),  # amp IQ according to configured TX power
         InjectFunction("tx_coeff_calc", patchset["tx_coeff_calc"]),  # update coefficients for IQ on TX power change
+        InjectFunction("fm_demodulate", patchset["fm_demodulate"]),  # Demodulate FM
         InjectFunction("am_fm_rx_process", patchset["am_fm_rx_process"]),  # process AM/FM rx (sql, dc blocker)
         InjectFunction("anf_update", patchset["anf_update"]),  # update notch filter params
         InjectFunction("copy_flow", patchset["copy_flow"]),  # copy data samples to flow with changes
+        InjectFunction("process_i2c_cmd", patchset["process_i2c_cmd"]),  # handle i2c commands
     ], asm_o_file=o_file, flash_offset=flash_offset, orig_fw_size=len(orig_code), rodata_start=rodata_start, rodata_end=rodata_end)
 
     elf = "asm/helper.elf"
@@ -349,9 +423,9 @@ def main():
     functions.copy_rodata(patched_code, dst)
 
     #update stack pointers
-    for stack_p in (stack_p_0, stack_p_1):
-        offset = stack_p - flash_offset
-        dst[offset: offset + 4] = np.uint32(stack_new_p).tobytes()
+    # for stack_p in (stack_p_0, stack_p_1):
+    #     offset = stack_p - flash_offset
+    #     dst[offset: offset + 4] = np.uint32(stack_new_p).tobytes()
 
     # copy wrappers
     functions.copy_wrappers(elf, dst)

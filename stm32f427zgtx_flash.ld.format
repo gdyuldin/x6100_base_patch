@@ -93,7 +93,7 @@ SECTIONS
     . = ${END_OEM_FW_OFFSET} - start_text + 64;
     . = ALIGN(4);
     *(.text*)          /* .text* sections (code) */
-    *(.rodata.patch_data)
+
 
     *(.glue_7)         /* glue arm to thumb code */
     *(.glue_7t)        /* glue thumb to arm code */
@@ -111,6 +111,7 @@ SECTIONS
   {
     . = ALIGN(4);
     *(.rodata)         /* .rodata sections (constants, strings, etc.) */
+    *(.rodata.patch_data)
     *(.rodata*)        /* .rodata* sections (constants, strings, etc.) */
     . = ALIGN(4);
   } >FLASH

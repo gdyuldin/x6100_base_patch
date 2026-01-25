@@ -28,13 +28,6 @@
 #define FLOW_SAMPLES_CPLX               (0x20007130)
 #define FLOW_N_SAMPLES                  (0x2000dd5c)
 
-// uint32_t copy_flow_samples_to_arg(float *p_Dst) - 08022658
-
-// x6100_flow - 200003e4
-
-// To replace with custom FN
-//    08032128 f0 f7 96 fa     bl      copy_flow_samples_to_arg            uint32_t copy_flow_sam
-
 
 #elif BUILD_DATE == 230307001
 
@@ -60,19 +53,11 @@
 #define FLOW_SAMPLES_COUNTER            (0x20007134)
 #define FLOW_SAMPLES_CPLX               (0x20007138)
 #define FLOW_N_SAMPLES                  (0x2000dd64)
+#define IQ_RF_FLOAT_IN                  (0x20005d18)
 
-
-// uint32_t copy_flow_samples_to_arg(float *p_Dst) - 080227e0
-
-// flow_samples_cplx - 20007138
-
-// uint32_t_2000dd5c_512 - 2000dd64
-
-// x6100_flow - 200003ec
-
-// To replace with custom FN
-//    08033c88 ee f7 aa fd     bl      copy_flow_samples_to_arg            uint32_t copy_flow_sam
-
+#define AM_FM_RX_I                      (0x20008140)
+#define AM_FM_RX_Q                      (0x20008144)
+#define AM_FM_DEMOD                     (0x20008148)
 
 #endif
 

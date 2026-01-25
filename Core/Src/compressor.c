@@ -1,20 +1,23 @@
 #include "compressor.h"
+
+#include <dsp/controller_functions.h>
+
 #include "offsets.h"
 
 #include "math.h"
 #include "stdbool.h"
 #include "log10f.c"
 #include "powf.c"
-#include "sin_values.c"
+#include "sin_cos.c"
 #include "stdarg.h"
 #include "stdio.h"
-#include "firdecim_coeffs.c"
+#include "iirdecim.h"
+// #include <dsp/fast_math_functions.h>
+// #include <dsp/support_functions.h>
 
-// #define PER_BAND_OUT_POWER
 
-
-#define MAX(a, b) (a > b ? a : b)
-#define MIN(a, b) (a < b ? a : b)
+// #define MAX(a, b) (a > b ? a : b)
+// #define MIN(a, b) (a < b ? a : b)
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(*a))
 
 /**
@@ -35,17 +38,20 @@
 #define BAND_10 19
 #define BAND_6 21
 
-#define FLOW_BLOCK_CNT 1024  // 1024 complex samples
+// Flow complex samples size
+#define FLOW_SEQ_SAMPLES 512
+#define CFLOAT32_BYTES (sizeof(float) * 2)
+#define CFLOAT16_BYTES (sizeof(uint16_t) * 2)
 
 /**
  * Compressor/gate constants
  */
 
  // Sine signal level (zero to peak) on SSB, which produces expected power
-#define UNITY_LVL -42.0f
+#define UNITY_LVL -5.2f
 
 // Level of microphone noise
-#define NOISE_LVL -80.0f
+#define NOISE_LVL -43.0f
 
 // Delay in samples
 #define COMP_DELAY 60
@@ -65,22 +71,34 @@
 
 
 /**
- * Limiter constants
- */
-#define LIMITER_MAX_VAL 0.00741f
-
-
-/**
  * I2C registers
  */
 typedef enum
 {
     x6100_sple_atue_trx = 12,
     x6100_vi_vm,
-    x6100_rfg_txpwr = 15,
+    x6100_rfg_txpwr = 15,  // plus fft span
+    x6100_flow_fm_emp = 18,
+    x6100_dac_adc_offsets = 19,
     x6100_dnfcnt_dnfwidth_dnfe = 24,
     x6100_cmplevel_cmpe = 25,
+    x6100_if_shift = 35,
 } x6100_cmd_enum_t;
+
+typedef enum __attribute__((__packed__))
+{
+    x6100_subcmd_flow_params = 1,
+    x6100_subcmd_adc_dac_gain_offset,  // For correction of different devices
+    x6100_subcmd_dac_gain_offset, // For per-band output correction
+    x6100_subcmd_fm_emphasis,
+
+} x6100_subcmd_enum_t;
+
+typedef enum __attribute__((__packed__))
+{
+    x6100_flow_fp32 = 0,
+    x6100_flow_bf16,
+} x6100_flow_fmt_t;
 
 
 enum __attribute__((__packed__)) mod_t {
@@ -120,6 +138,21 @@ struct dc_blocker_t {
     float ym1;
 };
 
+typedef struct __packed {
+    uint32_t lo_freq;
+    uint8_t flow_fmt;
+    uint8_t flow_seq_n: 4;
+    uint8_t flow_seq_total: 4;
+    uint8_t vary_freq: 1;
+    uint8_t fft_dec: 3;
+    uint32_t _pad1: 12;
+    uint32_t _pad2;
+} flow_info_t;
+
+
+/**
+ * State struct
+ */
 
 typedef struct {
     // multiplier for output (before DAC)
@@ -141,8 +174,6 @@ typedef struct {
         struct ring_buf squared_acc;
         float squared_acc_data[COMP_DELAY];
         float squared_sum;
-
-        uint32_t i2c_reg_val;
     } comp;
 
     struct dc_blocker_t tx_dc_blocker;
@@ -155,7 +186,9 @@ typedef struct {
         float am;
         float fm;
 
-        uint32_t i2c_pwr_reg;
+        float adc_dac_gain_offset;  // For in audio / out rf correction
+        float dac_gain_offset;  // For per-band out correction
+        bool outdated;
     } tx_amp_coeffs;
 
     /* AM/FM RX processing data */
@@ -177,8 +210,6 @@ typedef struct {
         bool enabled;
         float an;
         float mean_squared;
-
-        uint32_t i2c_reg_val;
     } anf;
 
     /* RX IQ offset */
@@ -209,53 +240,78 @@ typedef struct {
     uint16_t tx_filter_low;
     uint16_t tx_filter_high;
 
-    uint32_t prev_freq_plus_rit;
-    uint8_t flow_collecting_delay;
-    float flow_data[FLOW_BLOCK_CNT * 2];
-    float *flow_write_p;
-    float *flow_read_p;
-    uint8_t flow_decim_steps;
     struct {
-        arm_fir_decimate_instance_f32 i_decim_inst;
-        float i_state[FIRDECIM_2_NUM_TAPS + 1];
-        arm_fir_decimate_instance_f32 q_decim_inst;
-        float q_state[FIRDECIM_2_NUM_TAPS + 1];
-    } flow_decim[3];
+        uint32_t rfg_txpwr;
+        uint32_t cmplevel_cmpe;
+        uint32_t dnfcnt_dnfwidth_dnfe;
+        uint32_t if_shift;
+        uint32_t flow_fm_emp;
+        uint32_t dac_adc_offsets;
+    } i2c_raw;
 
     struct {
-        uint32_t samples_freq;
-        uint8_t sample_n;
-        uint32_t pad;
-    } flow_reserved_3;
+        x6100_flow_fmt_t fmt;
+        uint8_t fft_dec;
+        uint8_t collecting_delay; // Delay of collecting after changing freq.
+        uint8_t data[CFLOAT32_BYTES * FLOW_SEQ_SAMPLES * 2];  // Buffer with max allowed size.
+        uint8_t *write_p;
+        uint8_t *read_p;
+        uint8_t sample_size;  // Size of dingle sample in bytes
+        uint16_t desired_samples;  // Count of desired samples to collect
+        struct {
+            uint32_t sum;
+            uint8_t cnt;
+        } avg_freq;
+    } flow;
+
+    // FM demoulation
+    struct {
+        cfloat_t iq_history[3];
+        float avg_k;
+        float hpf_env;
+        arm_biquad_casd_df1_inst_f32 iir_snr_detector;
+        float iir_snr_detector_coeffs[5];
+        float iir_snr_detector_state[4];
+        bool emphasis_on;
+        // De-emphasis filter
+        arm_biquad_casd_df1_inst_f32 deemp_filter;
+        float deemp_filter_coeffs[5];
+        float deemp_filter_state[4];
+        // Pre-emphasis filter
+        arm_biquad_casd_df1_inst_f32 preemp_filter;
+        float preemp_filter_coeffs[5];
+        float preemp_filter_state[4];
+        float phase;
+    } fm_demod;
+
+    flow_info_t flow_info;
     /* Debug and pad */
     // tone
-    uint32_t tone_step;
+    struct {
+        bool on;
+        int32_t freq;
+        float step;
+        float angle;
+    } if_shift;
+    float freq_shift_angle;
 
-} __attribute__ ((aligned (16))) data_t;
+} data_t;
+// } __attribute__ ((aligned (16))) data_t;
 
 // To check. Should be 12
 // static uint32_t size = sizeof(data->flow_reserved_3);
 
-#define DATA_P (STACK_ADDR - sizeof(data_t))
+// #define DATA_P (STACK_ADDR - sizeof(data_t))
 
-static data_t *data = (data_t*)DATA_P;
+// static data_t *data = (data_t*)DATA_P;
 
-/**
- * Output power per-band correction values
- */
-__attribute__((section(".rodata.patch_data"))) const float tx_coeffs_corr_table[23] =
-    {
-        [BAND_160] = 1.0f,
-        [BAND_80] = -0.2f,
-        [BAND_40] = -0.4f,
-        [BAND_30] = -0.4f,
-        [BAND_20] = 0.6f,
-        [BAND_17] = -0.0f,
-        [BAND_15] = 2.0f,
-        [BAND_12] = 0.8f,
-        [BAND_10] = 2.0f,
-        [BAND_6] = -0.0f,
-};
+data_t data_arr __attribute((section(".ccmram")));
+
+static data_t *data = &data_arr;
+
+// #define CCM_DATA_P (0x10000000 + 0x10000 - sizeof(data_t))
+// __attribute((section(".ccmram"))) static data_t *data  = (data_t*)CCM_DATA_P;
+// __attribute((section(".ccmram"))) static data_t *data;
 
 
 /**
@@ -282,22 +338,16 @@ static uint32_t *i2c_regs = (uint32_t *)I2C_REGS_ADDR;
 static volatile uint8_t *tx_flag = (uint8_t *)TX_FLAG_VALUE;
 
 static float *am_carrier_lvl = (float *)AM_CARRIER_LEVEL_VALUE;
+static float *fm_depth_of_mod = (float *)FM_DEPTH_OF_MOD_VALUE;
 
 static volatile uint32_t *freq_plus_rit = (uint32_t *)FREQ_PLUS_RIT;
 static uint8_t *stop_copy_flow = (uint8_t *)STOP_COPY_FLOW;
-static uint32_t *flow_n_samples = (uint32_t *)FLOW_N_SAMPLES;
-static float *flow_samples_cplx = (float *)FLOW_SAMPLES_CPLX;
+static uint32_t *flow_n_samples = (uint32_t *)FLOW_N_SAMPLES; // Count of samples to send in a block, 512
+static uint32_t *flow_samples_counter = (uint32_t *)FLOW_SAMPLES_COUNTER;  // Count of already collected samples in OEM function
+static float *flow_samples_cplx = (float *)FLOW_SAMPLES_CPLX;  // Pointer to array of flow samples
 
 
-/**
- * Declarations of compiled in OEM functions
- */
-extern void arm_fill_f32(float val, float *data, uint32_t size) __attribute__((noinline, section(".arm_fill_f32_sec")));
-extern float arm_sqrt_f32(float val) __attribute__((noinline, section(".arm_sqrt_f32_sec")));
-extern void setup_biquad_filter(float sampling_rate, float freq_low, float freq_high,
-                                 void *flt_S, int param_5) __attribute__((noinline, section(".setup_biquad_filter_sec")));
-extern void arm_copy_f32(float *pSrc, float *pDst, uint32_t blockSize) __attribute__((noinline, section(".arm_copy_f32_sec")));
-extern void arm_fir_decimate_f32(arm_fir_decimate_instance_f32 *S,float *pSrc,float *pDst,uint32_t blockSize) __attribute__((noinline, section(".arm_fir_decimate_f32_sec")));
+static void flow_collecting_reset(void);
 
 /**
  * Db <-> linear conversion
@@ -353,39 +403,19 @@ inline float dc_blocker(float val, float k, struct dc_blocker_t *dc) {
     return tmp;
 }
 
-float soft_limiter(float val) {
-    const float th = LIMITER_MAX_VAL * 0.5f;
+float soft_limiter(float val, float max_val) {
+    const float th = max_val * 0.5f;
     float x;
     if (val > th) {
         x = th  / val;
-        val = (1.0f - x) * (LIMITER_MAX_VAL - th) + th;
+        val = (1.0f - x) * (max_val - th) + th;
     } else if (val < -th) {
         x = -th  / val;
-        val = -((1.0f - x) * (LIMITER_MAX_VAL - th) + th);
+        val = -((1.0f - x) * (max_val - th) + th);
     }
     return val;
 }
 
-
-static inline void update_comp_params() {
-    if ((i2c_regs[x6100_cmplevel_cmpe] != data->comp.i2c_reg_val) || (data->comp.ratio_comp == 0.0f)) {
-        data->comp.i2c_reg_val = i2c_regs[x6100_cmplevel_cmpe];
-        float threshold_offset = (int8_t)((data->comp.i2c_reg_val >> 3) & 0xFC) * 0.125f;
-        float makeup_offset = (int8_t)((data->comp.i2c_reg_val >> 9) & 0xFC) * 0.125f;
-
-        // ratio configured with -2 offset: 0 -> 2:1, 1 -> 3:1, etc
-        data->comp.ratio_comp = *cmp_level + 2.0f;
-        data->comp.threshold = TH_COMP + threshold_offset;
-        data->comp.makeup = ((UNITY_LVL - data->comp.threshold) * (1.0f - 1.0f / data->comp.ratio_comp) - 2.0f) + makeup_offset;
-    }
-}
-
-static inline void update_anf_params() {
-    if (i2c_regs[x6100_dnfcnt_dnfwidth_dnfe] != data->anf.i2c_reg_val) {
-        data->anf.i2c_reg_val = i2c_regs[x6100_dnfcnt_dnfwidth_dnfe];
-        data->anf.enabled = (data->anf.i2c_reg_val >> 25) & 1;
-    }
-}
 
 static inline void update_tx_filter_params() {
     float rate = *(float *)TX_SAMPLING_RATE_12_5;
@@ -461,146 +491,209 @@ inline static void fast_iq_offset_counter_setup() {
     }
 }
 
-inline static void decimate_flow_2(arm_fir_decimate_instance_f32 *Si, arm_fir_decimate_instance_f32 *Sq, float *src, float *dst, size_t n_samples) {
-    float i_buf[2];
-    float q_buf[2];
-    size_t j;
-    for (size_t i = 0; i < n_samples * 2; i+=4)
-    {
-        i_buf[0] = src[i];
-        q_buf[0] = src[i + 1];
-        i_buf[1] = src[i + 2];
-        q_buf[1] = src[i + 3];
-        j = i >> 1;
-        arm_fir_decimate_f32(Si, i_buf, dst + j, 2);
-        arm_fir_decimate_f32(Sq, q_buf, dst + j + 1, 2);
-        // *(dst + j) = i_buf[0];
-        // *(dst + j + 1) = q_buf[0];
-    }
+
+static inline void flow_collecting_reset(void) {
+    // Reset collecting to prevent sending
+    *stop_copy_flow = false;
+    *flow_samples_counter = 0;
+    // reset flow_data pointers
+    data->flow.write_p = data->flow.data;
+    data->flow.read_p = data->flow.data;
+    data->flow.avg_freq.cnt = 0;
+    data->flow.avg_freq.sum = 0;
+    iirdecim_reset();
 }
 
-/// @brief Decimate complex flow samples
-/// @param src pointer to input complex array
-/// @param dst pointer to output complex array
-/// @param n_samples count of complex samples
-/// @return count of decimated complex samples
-static size_t decimate_flow(float *src, float *dst, size_t n_samples) {
-    float tmp_buf[n_samples];
-    float tmp_buf2[n_samples / 2];
-    if (data->flow_decim_steps == 0) {
-        arm_copy_f32(src, dst, n_samples * 2);
-        return n_samples;
+static inline void *copy_flow_f32(float *pSrc, float *pDst, size_t n_src_cmplx_samples) {
+    iir_decim_iq_n(data->flow.fft_dec, pSrc, pDst, n_src_cmplx_samples);
+    n_src_cmplx_samples >>= data->flow.fft_dec;
+
+    return pDst + (n_src_cmplx_samples << 1);
+}
+
+static inline void *copy_flow_b16(float *pSrc, void *pDst, size_t n_src_cmplx_samples) {
+    float *tmp;
+    size_t n_blocks;
+    iir_decim_iq_n(data->flow.fft_dec, pSrc, pSrc, n_src_cmplx_samples);
+    n_src_cmplx_samples >>= data->flow.fft_dec;
+    uint16_t *pfDst = (uint16_t*)pDst;
+    tmp = pSrc;
+    n_blocks = n_src_cmplx_samples >> 1u;
+    while (n_blocks) {
+        *pfDst++ = *((uint16_t*)&(*tmp++) + 1);
+        *pfDst++ = *((uint16_t*)&(*tmp++) + 1);
+        *pfDst++ = *((uint16_t*)&(*tmp++) + 1);
+        *pfDst++ = *((uint16_t*)&(*tmp++) + 1);
+        n_blocks--;
     }
-    if (data->flow_decim_steps == 1) {
-        decimate_flow_2(&data->flow_decim[0].i_decim_inst, &data->flow_decim[0].q_decim_inst, src, dst, n_samples);
-        return n_samples >> 1;
+    // Copy rest
+    n_blocks = n_src_cmplx_samples & 1u;
+    while (n_blocks) {
+        *pfDst++ = *((uint16_t*)&(*tmp++) + 1);
+        *pfDst++ = *((uint16_t*)&(*tmp++) + 1);
+        n_blocks--;
     }
-    if (data->flow_decim_steps == 2) {
-        decimate_flow_2(&data->flow_decim[0].i_decim_inst, &data->flow_decim[0].q_decim_inst, src, tmp_buf, n_samples);
-        n_samples >>= 1;
-        decimate_flow_2(&data->flow_decim[1].i_decim_inst, &data->flow_decim[1].q_decim_inst, tmp_buf, dst, n_samples);
-        return n_samples >> 1;
+    return pfDst;
+}
+
+static inline void set_flow_params(x6100_flow_fmt_t fmt) {
+    uint16_t size;
+    data->flow.fmt = fmt;
+    switch (fmt) {
+        case x6100_flow_fp32:
+            data->flow.sample_size = CFLOAT32_BYTES;
+            size = FLOW_SEQ_SAMPLES;
+            break;
+            case x6100_flow_bf16:
+            data->flow.sample_size = CFLOAT16_BYTES;
+            size = FLOW_SEQ_SAMPLES * 2;
+            break;
+
+        default:
+            return;
     }
-    if (data->flow_decim_steps == 3) {
-        decimate_flow_2(&data->flow_decim[0].i_decim_inst, &data->flow_decim[0].q_decim_inst, src, tmp_buf, n_samples);
-        n_samples >>= 1;
-        decimate_flow_2(&data->flow_decim[1].i_decim_inst, &data->flow_decim[1].q_decim_inst, tmp_buf, tmp_buf2, n_samples);
-        n_samples >>= 1;
-        decimate_flow_2(&data->flow_decim[2].i_decim_inst, &data->flow_decim[2].q_decim_inst, tmp_buf2, dst, n_samples);
-        return n_samples >> 1;
-    }
-    return 0;
+    size_t block_size = FLOW_SEQ_SAMPLES * CFLOAT32_BYTES / data->flow.sample_size;
+    data->flow_info.flow_seq_total = size / block_size;
+    data->flow.desired_samples = size;
+    flow_collecting_reset();
+
 }
 
 // Patched version of copying flow data
-__noinline uint32_t copy_flow_samples_to_arg(float *p_Dst) {
-  uint32_t copied;
-  uint32_t *custom_flow_reserved_3 = (uint32_t *)&data->flow_reserved_3;
 
-  if (data->flow_data + FLOW_BLOCK_CNT * 2 <= data->flow_write_p) {
-    size_t n_samples = (*flow_n_samples) << 1;
-    arm_copy_f32(data->flow_read_p, p_Dst, n_samples);
-    flow_reserved_3[0] = custom_flow_reserved_3[0];
-    flow_reserved_3[1] = (data->flow_read_p - data->flow_data) / n_samples;
-    // flow_reserved_3[2] = custom_flow_reserved_3[2];
-    data->flow_read_p += n_samples;
-    copied = 1;
-    if (data->flow_read_p == data->flow_write_p) {
-        // All data sent, reset counters
-        data->flow_write_p = data->flow_data;
-        data->flow_read_p = data->flow_data;
-        *stop_copy_flow = false;
-    }
+uint32_t copy_flow(float *p_Dst) {
+    uint32_t copied = 0;
+    uint32_t *custom_flow_reserved_3 = (uint32_t *)&data->flow_info;
+    uint32_t avg_freq;
+
+    data->flow_info.flow_seq_n = 0xf;
+    // data->flow_info.pad = TIM2->ARR;
+    // TIM2->ARR = 4000 / 5;
+
+    // TIM2->PSC = 80;
+    // TIM2->ARR = 16000;
+    // TIM2->EGR = TIM_EGR_UG;
+    // // Force autoreloading
+    // TIM2->CR1 |= TIM_CR1_ARPE;
+    // if ((data->flow.read_p == data->flow.data) && (TIM2->PSC != 20)) {
+    //     TIM2->PSC = 20;
+    // } else {
+    //     TIM2->PSC = 5;
+    // }
+    // TIM2->SR
+    if (data->flow.data + (data->flow.desired_samples * data->flow.sample_size) <= data->flow.write_p) {
+        arm_copy_f32((float *)data->flow.read_p, p_Dst, (*flow_n_samples) << 1);
+        uint32_t copied_bytes = (*flow_n_samples * 8);
+        data->flow_info.flow_seq_n = (data->flow.read_p - data->flow.data) / copied_bytes;
+        avg_freq = data->flow.avg_freq.sum / data->flow.avg_freq.cnt;
+        if (avg_freq != data->flow_info.lo_freq) {
+            data->flow_info.lo_freq = avg_freq;
+            data->flow_info.vary_freq = true;
+        } else {
+            data->flow_info.vary_freq = false;
+        }
+        flow_reserved_3[0] = custom_flow_reserved_3[0];
+        flow_reserved_3[1] = custom_flow_reserved_3[1];
+        flow_reserved_3[2] = custom_flow_reserved_3[2];
+        data->flow.read_p += copied_bytes;
+        copied = 1;
+        if (data->flow.read_p >= data->flow.write_p) {
+            // All data sent, reset counters
+            flow_collecting_reset();
+        }
   }
   return copied;
 }
 
-static void handle_freq_change() {
-    uint32_t *flow_samples_counter = (uint32_t *)FLOW_SAMPLES_COUNTER;
-    if (*freq_plus_rit != data->prev_freq_plus_rit) {
-        // Freq was changed, set delay
-        data->prev_freq_plus_rit = *freq_plus_rit;
-        data->flow_collecting_delay = 2;
-    }
-    if (data->flow_collecting_delay) {
-        data->flow_collecting_delay--;
-        // Reset collecting to prevent sending
-        *stop_copy_flow = false;
-        *flow_samples_counter = 0;
-        // reset flow_data pointers
-        data->flow_write_p = data->flow_data;
-        data->flow_read_p = data->flow_data;
-    } else if ((!*stop_copy_flow) && (*flow_samples_counter == 0) && (data->flow_write_p == data->flow_data)) {
-        // Remember freq before filling 1st block
-        data->flow_reserved_3.samples_freq = *freq_plus_rit;
-    }
 
-    // Decimate and collect
-    if (data->flow_data + FLOW_BLOCK_CNT * 2 > data->flow_write_p) {
+static void flow_collecting_at_end(void) {
+    size_t remain_samples = (data->flow.data + (data->flow.desired_samples * data->flow.sample_size) - data->flow.write_p) / data->flow.sample_size;
+    // Collect data.
+    if (remain_samples > 0) {
+        // Add prev freq to avg acc
+        data->flow.avg_freq.sum += *freq_plus_rit;
+        data->flow.avg_freq.cnt += 1;
+        if (data->flow.write_p == data->flow.data) {
+            // Remember freq and fmt at filling 1st block
+            data->flow_info.flow_fmt = data->flow.fmt;
+            data->flow_info.lo_freq = *freq_plus_rit;
+            iirdecim_reset();
+        }
+
         ssize_t offset = -1;
-        if ((data->flow_write_p == data->flow_data) && *flow_samples_counter) {
-            offset = 0;
-        } else if (data->flow_write_p > data->flow_data) {
-            if (*flow_samples_counter == 0) {
-                offset = 384;
-            } else {
+        if (remain_samples > (*flow_n_samples >> data->flow.fft_dec)) {
+            if (*flow_samples_counter) {
+                offset = 0;
+                // Reset samples counter
+                *flow_samples_counter = 0;
+            }
+        } else {
+            if (*flow_samples_counter != 0) {
                 offset = *flow_samples_counter - 128;
+            } else {
+                // copy last block
+                offset = 384;
             }
         }
         if (offset >= 0) {
-            size_t new_samples_n = decimate_flow(flow_samples_cplx + (offset << 1), data->flow_write_p, 128);
-            data->flow_write_p += new_samples_n * 2;
-
-        }
-        if ((data->flow_data + FLOW_BLOCK_CNT * 2 > data->flow_write_p) && *stop_copy_flow) {
-            *stop_copy_flow = false;
+            // data->flow.write_p = copy_flow_f32(flow_samples_cplx + (offset << 1), (float *)data->flow.write_p, 128);
+            if (data->flow.fmt == x6100_flow_fp32) {
+                data->flow.write_p = copy_flow_f32(flow_samples_cplx + (offset << 1), (float *)data->flow.write_p, 128);
+            } else {
+                data->flow.write_p = copy_flow_b16(flow_samples_cplx + (offset << 1), (void *)data->flow.write_p, 128);
+            }
         }
     }
-    //     // if (!*stop_copy_flow) {
-    //     //     // in collecting data state - reset collected data
-    //     //     *flow_samples_counter = 0;
-    //     // }
+}
 
-    //     // after processing block data will not collected completely - wipe it, reset counters
-    //     // after processing block data will be collected completely - wipe it, reset counters
-    //     // Reset collecting on freq change
-    //     // data->flow_reserved_3.samples_freq = *freq_plus_rit;
-    //     // data->flow_reserved_3.sample_n = 0;
-    //     // *stop_copy_flow = 0;
-    //     // *flow_samples_counter = 0;
+static void fm_demod_init(void) {
+    arm_fill_f32(0.0f, (float *)data->fm_demod.iq_history, sizeof(data->fm_demod.iq_history) / 4);
+    data->fm_demod.avg_k = 0.0f;
+    data->fm_demod.hpf_env = 0.0f;
 
-    // if ((*stop_copy_flow == 0) && (*flow_samples_counter == 0)) {
-    //     data->flow_reserved_3.samples_freq = *freq_plus_rit;
-    //     data->flow_reserved_3.sample_n = 0;
-    // }
+    data->fm_demod.iir_snr_detector.numStages = 1;
+    data->fm_demod.iir_snr_detector.pCoeffs = data->fm_demod.iir_snr_detector_coeffs;
+    data->fm_demod.iir_snr_detector.pState = data->fm_demod.iir_snr_detector_state;
+    arm_fill_f32(0.0f, data->fm_demod.iir_snr_detector_state, sizeof(data->fm_demod.iir_snr_detector_state) / 4);
+    data->fm_demod.iir_snr_detector_coeffs[0] = 0.11735104f;
+    data->fm_demod.iir_snr_detector_coeffs[1] = -0.23470207f;
+    data->fm_demod.iir_snr_detector_coeffs[2] = 0.11735104f;
+    data->fm_demod.iir_snr_detector_coeffs[3] = -0.82523238f;
+    data->fm_demod.iir_snr_detector_coeffs[4] = -0.29463653f;
+
+    // De-emphasis filter
+    data->fm_demod.deemp_filter.numStages = 1;
+    data->fm_demod.deemp_filter.pCoeffs = data->fm_demod.deemp_filter_coeffs;
+    data->fm_demod.deemp_filter.pState = data->fm_demod.deemp_filter_state;
+    arm_fill_f32(0.0f, data->fm_demod.deemp_filter_state, sizeof(data->fm_demod.deemp_filter_state) / 4);
+    data->fm_demod.deemp_filter_coeffs[0] = 1.0f;
+    data->fm_demod.deemp_filter_coeffs[1] = 0.4133537804899683f;
+    data->fm_demod.deemp_filter_coeffs[2] = 0.0f;
+    data->fm_demod.deemp_filter_coeffs[3] = 0.5866462195100317f;
+    data->fm_demod.deemp_filter_coeffs[4] = 0.0f;
+
+    // Pre-emphasis filter
+    data->fm_demod.preemp_filter.numStages = 1;
+    data->fm_demod.preemp_filter.pCoeffs = data->fm_demod.preemp_filter_coeffs;
+    data->fm_demod.preemp_filter.pState = data->fm_demod.preemp_filter_state;
+    arm_fill_f32(0.0f, data->fm_demod.preemp_filter_state, sizeof(data->fm_demod.preemp_filter_state) / 4);
+    data->fm_demod.preemp_filter_coeffs[0] = 1.0f;
+    data->fm_demod.preemp_filter_coeffs[1] = -0.3441537868654123f;
+    data->fm_demod.preemp_filter_coeffs[2] = 0.0f;
+    data->fm_demod.preemp_filter_coeffs[3] = -0.6558462131345877f;
+    data->fm_demod.preemp_filter_coeffs[4] = 0.0f;
+
+    data->fm_demod.emphasis_on = 1;
 }
 
 /**
  * Setup data storage. Inject, calls at startup
  */
 __attribute__((optimize("O1"))) void init_data(void) {
-    uint32_t *area_end = (uint32_t*)0x20030000;
-    uint32_t *area_start = area_end - sizeof(data_t) / sizeof(uint32_t);
+    // uint32_t *area_end = (uint32_t*)0x20030000;
+    // uint32_t *area_start = area_end - sizeof(data_t) / sizeof(uint32_t);
+    uint32_t *area_start = (uint32_t*)data;
+    uint32_t *area_end = (uint32_t*)data + sizeof(data_t) / sizeof(uint32_t);
 
     for (;area_start < area_end; area_start++) {
         *area_start = 0;
@@ -610,24 +703,16 @@ __attribute__((optimize("O1"))) void init_data(void) {
     data->comp.squared_acc.data = data->comp.squared_acc_data;
     data->comp.squared_acc.size = sizeof(data->comp.squared_acc_data) / sizeof(*data->comp.squared_acc_data);
 
-    // Setup flow decim
-    for (size_t i = 0; i < ARRAY_SIZE(data->flow_decim); i++) {
-        data->flow_decim[i].i_decim_inst.M = 2;
-        data->flow_decim[i].i_decim_inst.numTaps = FIRDECIM_2_NUM_TAPS;
-        data->flow_decim[i].i_decim_inst.pCoeffs = firdecim_2_coeffs;
-        data->flow_decim[i].i_decim_inst.pState = data->flow_decim[i].i_state;
-        arm_fill_f32(0.0f, data->flow_decim[i].i_state, ARRAY_SIZE(data->flow_decim[i].i_state));
-        data->flow_decim[i].q_decim_inst.M = 2;
-        data->flow_decim[i].q_decim_inst.numTaps = FIRDECIM_2_NUM_TAPS;
-        data->flow_decim[i].q_decim_inst.pCoeffs = firdecim_2_coeffs;
-        data->flow_decim[i].q_decim_inst.pState = data->flow_decim[i].q_state;
-        arm_fill_f32(0.0f, data->flow_decim[i].q_state, ARRAY_SIZE(data->flow_decim[i].q_state));
-    }
-    data->flow_write_p = data->flow_data;
-    data->flow_read_p = data->flow_data;
+    set_flow_params(x6100_flow_fp32);
+    data->if_shift.angle = 0.0f;
+    data->if_shift.step = 0.0f;
+    data->if_shift.on = false;
+    data->if_shift.freq = 0;
 
-    // NOTE: for test
-    data->flow_decim_steps = 0;
+    // init fft_dec instances
+    iirdecim_init();
+
+    fm_demod_init();
 }
 
 
@@ -635,41 +720,28 @@ __attribute__((optimize("O1"))) void init_data(void) {
  * Update signal processing parameters. Inject, calls at beginning of the DMA process.
  */
 
-void configure() {
-    update_comp_params();
-    update_anf_params();
+void configure(void) {
     update_tx_filter_params();
-    bool update_tx_coeffs = false;
-    // Update power-related coefficients, if power was changed
-    if (i2c_regs[x6100_rfg_txpwr] != data->tx_amp_coeffs.i2c_pwr_reg) {
-        data->tx_amp_coeffs.i2c_pwr_reg = i2c_regs[x6100_rfg_txpwr];
-        update_tx_coeffs = true;
-    }
+
+    // Reset coefficients on SWR scan
     bool swr_scan = i2c_regs[x6100_sple_atue_trx] & SWR_SCAN;
     if (swr_scan != data->swr_scan) {
         data->swr_scan = swr_scan;
-        update_tx_coeffs = true;
+        data->tx_amp_coeffs.outdated = true;
     }
+
     uint8_t band_id = (uint8_t)(i2c_regs[x6100_vi_vm] >> 8);
     if (band_id != data->band_id) {
         data->band_id = band_id;
-        update_tx_coeffs = true;
+        data->tx_amp_coeffs.outdated = true;
     }
-    if (update_tx_coeffs) {
-        float pwr = (uint8_t)(data->tx_amp_coeffs.i2c_pwr_reg >> 8) * 0.1f;
+
+    if (data->tx_amp_coeffs.outdated) {
+        float pwr = (uint8_t)(data->i2c_raw.rfg_txpwr >> 8) * 0.1f;
         tx_coeff_calc(pwr);
     }
     fast_iq_offset_counter_setup();
-    // Output audio input data
-    // int32_t *tx_data = (int32_t *)0x20003a94;
-    // data->tone_step++;
-    // if (data->tone_step >= 50) {
-    //     // Print gpio values
-    //     // flow_reserved_3[0] = GPIOD->IDR;
-    //     // flow_reserved_3[1] = GPIOE->IDR;
-    //     // flow_reserved_3[2] = GPIOI->IDR;
-    //     data->tone_step = 0;
-    // }
+
     // Reset ring buffers (for compressor) on RX/TX state change
     if (data->tx_flag != *tx_flag) {
         data->tx_flag = *tx_flag;
@@ -677,31 +749,47 @@ void configure() {
             ring_buf_reset(&data->comp.dline);
         }
     }
+}
 
-    // Handle freq change (for correct flow collect)
-    handle_freq_change();
+
+/**
+ * Patches for colleting flow. Called at end of the DMA process.
+ */
+
+void dma_end(void) {
+    flow_collecting_at_end();
 }
 
 /**
  * Convert int IQ to float and apply offsets
  */
+// void apply_rx_iq_offset_impl(float *i, float *q);
+
+
 void apply_rx_iq_offset(void) {
     // IQ incoming data manipulation
 
-    // get stack pointer
-    register void *sp asm ("sp");
+    float *i, *q;
+    uint32_t *sp_val;
 
-    float *i = (float *)sp + 0;
-    float *q = (float *)sp + 1;
+    __asm__ __volatile__(
+        "MOV %0, sp\n"
+        : "=r"(sp_val)
+        :
+        :
+    );
 
-    float a = 0.0001f;
+    i = (float *)sp_val;
+    q = (float *)sp_val + 1;
+
+    float a = 0.001f;
 
     if (data->rx_iq_corr.state == RX_TX_STATE_PIN_DISCHARGE) {
         // Discharge step
         const float k = 1.0f - 0.000051f;
         data->rx_iq_corr.i_mean = (data->rx_iq_corr.i_mean - data->rx_iq_corr.i_mean_fix)*k + data->rx_iq_corr.i_mean_fix;
         data->rx_iq_corr.q_mean = (data->rx_iq_corr.q_mean - data->rx_iq_corr.q_mean_fix)*k + data->rx_iq_corr.q_mean_fix;
-        a = 0.0003f;
+        a = 0.003f;
     }
 
     if ((data->rx_iq_corr.state == RX_TX_STATE_MUTE) || (data->rx_iq_corr.state == RX_TX_STATE_WAIT_PIN_SWITCH)) {
@@ -711,34 +799,74 @@ void apply_rx_iq_offset(void) {
         float i_corr = *i - data->rx_iq_corr.i_mean;
         float q_corr = *q - data->rx_iq_corr.q_mean;
 
+        data->rx_iq_corr.i_mean += i_corr * a;
+        data->rx_iq_corr.q_mean += q_corr * a;
+
         *i = i_corr;
         *q = q_corr;
-
-        data->rx_iq_corr.i_mean += *i * a;
-        data->rx_iq_corr.q_mean += *q * a;
     }
+}
+
+/**
+ * IF shift
+ */
+
+void if_shift(void) {
+    if (!data->if_shift.on || (data->if_shift.step == 0.0f)) {
+        return;
+    }
+    // Size 128 x 2
+    float *iq = (float*) IQ_RF_FLOAT_IN;
+    float *stop = iq + 256;
+    float angle = data->if_shift.angle;
+    do
+    {
+        float i, q, i_a, q_a;
+        i = iq[0];
+        q = iq[1];
+        sin_cos(angle, &q_a, &i_a);
+        float m1 = i * i_a;
+        float m2 = q * q_a;
+        float m3 = i * q_a;
+        float m4 = q * i_a;
+        i = m1 - m2;
+        q = m3 + m4;
+        iq[0] = i;
+        iq[1] = q;
+
+        iq += 2;
+
+        angle += data->if_shift.step;
+        if (angle > M_TWOPI_F) {
+            angle -= M_TWOPI_F;
+        } else if (angle < 0) {
+            angle += M_TWOPI_F;
+        }
+    } while (iq != stop);
+    data->if_shift.angle = angle;
+}
+
+int32_t tx_if_shift(int32_t lo_freq_shif) {
+    if (data->if_shift.on) {
+        lo_freq_shif += data->if_shift.freq;
+    }
+    return lo_freq_shif;
 }
 
 /**
  * Set IQ scale on changing TX power
  */
 __noinline void tx_coeff_calc(float pwr) {
+    data->tx_amp_coeffs.outdated = false;
     float *am_depth_of_mod = (float *)AM_DEPTH_OF_MOD_VALUE;
-    float *fm_depth_of_mod = (float *)FM_DEPTH_OF_MOD_VALUE;
     float k;
-    float dac_gain_offset = (int8_t)(i2c_regs[x6100_rfg_txpwr] >> 16) * 0.2f;
-#ifdef PER_BAND_OUT_POWER
-    float dac_band_gain_offset = tx_coeffs_corr_table[data->band_id];
-#else
-    float dac_band_gain_offset = 0.0f;
-#endif
 
     // flow_reserved_3[0] = data->band_id;
-    // flow_reserved_3[1] = *(uint32_t*)&dac_gain_offset;
+    // flow_reserved_3[1] = *(uint32_t*)&adc_dac_gain_offset;
     // flow_reserved_3[2] = *(uint32_t*)&dac_band_gain_offset;
 
-    data->dac_output_coeff = db2lin(dac_gain_offset + dac_band_gain_offset);
-    data->adc_input_coeff = 1 / db2lin(dac_gain_offset);
+    data->dac_output_coeff = db2lin(data->tx_amp_coeffs.adc_dac_gain_offset + data->tx_amp_coeffs.dac_gain_offset);
+    data->adc_input_coeff = 1.0f / db2lin(data->tx_amp_coeffs.adc_dac_gain_offset);
     if (pwr >= 0) {
         float pow_scale = pwr / 10.0f;
         if (pow_scale <= 0.0f) {
@@ -751,54 +879,44 @@ __noinline void tx_coeff_calc(float pwr) {
     }
     // set coeffs
     k *= data->dac_output_coeff;
-    // calibrate FM to 10W with 0 gain offset
-    data->tx_amp_coeffs.fm = 8.12e-2f * k;
 
-    // AM carrier ~= fm / 2 ** 0.5 / 2
-    // 25 % of output power is a carrier
-    // 6W (7w wo limiter) output with unity input sine 1000 Hz. Will add 1.291 scale for both carrier and signal
-    // float am_k = 1.291f;
-    // float am_k = 1.195f;
-    float am_k = 1.0f;
+    data->tx_amp_coeffs.fm = 0.13485983319932224f * k;
+
+    // AM carrier for 100% - 0.09536030256492743
     if (data->swr_scan) {
         *am_carrier_lvl = 0.75f;
     } else {
-        *am_carrier_lvl = 0.0293f * am_k * k;
+        *am_carrier_lvl = 0.047680151282463716f * k;
     }
-    *am_depth_of_mod = 3.73f * am_k * k;
+    *am_depth_of_mod = 3.85f * k;
 
     data->tx_amp_coeffs.ssb = k;
-    // data->tx_amp_coeffs.fm = 7.6e-2f * k;
-    data->tx_amp_coeffs.cw = 6.04e-2f * k;
 
-    // for 2.5 w carrier at 10w output
-    // *am_carrier_lvl = 0.025f * k;
-    // *am_depth_of_mod = 3.25f * k;
+    data->tx_amp_coeffs.cw = 0.09536030256492745f * k;
 
-    // for 5W carrier at 10W output
-    // *am_carrier_lvl = 0.0353f * k;
-
-    // Set FM depth of mod
-    *fm_depth_of_mod = 100.0f;
+    // Set FM depth of mod w.r.t audio level to achieve 2.5 kHz depth of modulation
+    *fm_depth_of_mod = 32.5f * data->adc_input_coeff;
 }
 
 /**
  * Compressor, limiter
  */
-__attribute__((noinline, optimize("O2"))) float compress(float val) {
+__attribute__((noinline, optimize("O2"))) void compress(float *pval) {
     switch (*modulation) {
         // case MOD_LSB:
         case MOD_LSB_D: // lsb-d
         case MOD_USB_D: // usb-d
-            return val * data->adc_input_coeff;
+            *pval *= data->adc_input_coeff;
+            return;
             break;
         case MOD_CW: // cw
         case MOD_CWR: // cwr
-            return val;
+            return;
             break;
         default:
             break;
     }
+    float val = *pval;
 
     // Remove DC offset
     val = dc_blocker(val, (1.0f - TX_DC_BLOCKER_ALPHA), &data->tx_dc_blocker);
@@ -806,10 +924,8 @@ __attribute__((noinline, optimize("O2"))) float compress(float val) {
 
     // Invert (make enabled by default)
     if (*cmp_enabled) {
-        if (*modulation == MOD_AM) {
-            val = soft_limiter(val);
-        }
-        return val;
+        *pval = val;
+        return;
     }
 
     // Put val and squared val to buffers
@@ -820,7 +936,8 @@ __attribute__((noinline, optimize("O2"))) float compress(float val) {
     ring_buf_put(&data->comp.squared_acc, squared_val);
 
     if (!ring_buf_full(&data->comp.squared_acc)) {
-        return 0.0f;
+        *pval = 0.0f;
+        return;
     }
 
     data->comp.squared_sum -= ring_buf_get(&data->comp.squared_acc);
@@ -832,13 +949,20 @@ __attribute__((noinline, optimize("O2"))) float compress(float val) {
     } else {
         rms = 0.0f;
     }
+    // For debug
+    // union {
+    //     float f;
+    //     uint32_t i;
+    // } fuint = {rms};
+    // data->flow_info._pad2 = fuint.i;  // audio RMS
+    // data->flow_info._pad2 = *(uint32_t*)0x20009b88;  // MUL2 0.02f
+    // data->flow_info._pad2 = *(uint32_t*)0x20009abc;  // MUL1 0.8f
+    // data->flow_info._pad2 = *(uint32_t*)0x2000a184;  // FM depth mul 1
 
     float rms_db = lin2db(rms);
 
     if (rms_db == NAN) {
         rms_db = UNITY_LVL;
-    } else if (rms_db > 0.0f) {
-        rms_db = 0.0f;
     }
 
     float gain_comp = rms_db;
@@ -866,12 +990,24 @@ __attribute__((noinline, optimize("O2"))) float compress(float val) {
 
     old_val *= db2lin(corr);
 
-    if (*modulation == MOD_AM) {
-        // Limit AM signal to prevent over-modulation
-        old_val = soft_limiter(old_val);
-    }
+    *pval = old_val;
+    return;
+}
 
-    return old_val;
+float am_modulation(float val, float am_carrier_lvl, float am_level) {
+    val *= am_level;
+    val = soft_limiter(val, am_carrier_lvl);
+    return val + am_carrier_lvl;
+}
+
+float fm_modulate(float val) {
+    if (data->fm_demod.emphasis_on) {
+        arm_biquad_cascade_df1_f32(&data->fm_demod.preemp_filter, &val, &val, 1);
+        val *= 2.0f;
+    }
+    val *= *fm_depth_of_mod;
+    data->fm_demod.phase += val;
+    return data->fm_demod.phase * M_PI_F;
 }
 
 
@@ -911,79 +1047,144 @@ __attribute__((noinline)) void tx_amp(float *i, float *q) {
  * Process AM/FM RX signals
  */
 
+// fs / (2 * pi * bw)
+#define FM_LIMIT 1.591549431f
+void fm_demodulate(void *S, cfloat_t *iq_sample, float *out, uint32_t _n_samples){
+    UNUSED(S);
+    UNUSED(_n_samples);
 
-/**
- * fake fn (will be replaced with actual func address during linking)
- */
-void arm_fill_f32 (float val, float* data, uint32_t size) {
-    data[size-1] = val;
-    return;
-}
+    cfloat_t iq_dot;
+    float output;
 
-float arm_sqrt_f32 (float v) {
-    return sqrtf(v);
-}
+    cfloat_t *iq_history = data->fm_demod.iq_history;
 
-void setup_biquad_filter(float sampling_rate,float freq_low,float freq_high,
-                         void *flt_S, int param_5) {
-    float *flt_Sf = (float *)flt_S;
-    *flt_Sf = sampling_rate * freq_low * freq_high * param_5;
-}
 
-void arm_copy_f32(float *pSrc, float *pDst, uint32_t blockSize) {
-    pDst[blockSize - 1] = pSrc[blockSize - 2];
-}
+    float mag = (iq_sample->real * iq_sample->real + iq_sample->imag * iq_sample->imag);
 
-__attribute__((optimize("O1"))) void arm_fir_decimate_f32(arm_fir_decimate_instance_f32 *S, float *pSrc, float *pDst, uint32_t blockSize) {
-    pDst[blockSize] = pSrc[blockSize] * S->numTaps + S->pCoeffs[blockSize];
+    if (*sql) {
+        data->fm_sql.iq_squared_sum += mag;
+        data->fm_sql.iq_squared_cnt++;
+        if (data->fm_sql.iq_squared_cnt >= 100) {
+            data->fm_sql.iq_rms_db = lin2db(data->fm_sql.iq_squared_sum / 100.0f) / 2.0f;
+            data->fm_sql.iq_squared_sum = 0.0f;
+            data->fm_sql.iq_squared_cnt = 0;
+        }
+        if (data->fm_sql.iq_rms_db > (-110.0f + *sql)) {
+            data->fm_sql.counter = 3000;
+        } else if (data->fm_sql.counter > 0) {
+            data->fm_sql.counter--;
+        } else {
+            *out = 0.0f;
+            return;
+        }
+    }
+
+    mag = arm_sqrt_f32(mag);
+
+    if (mag > 0.0f) {
+        // save input
+        iq_history[0].real = iq_sample->real / mag;
+        iq_history[0].imag = iq_sample->imag / mag;
+    } else {
+        iq_history[0].real = 0.0f;
+        iq_history[0].imag = 0.0f;
+    }
+
+    // data->fm_demod.mag_val += (mag - data->fm_demod.mag_val) * 0.1f;
+
+    // Calculate derivative
+    iq_dot.real = iq_history[0].real - iq_history[2].real;
+    iq_dot.imag = iq_history[0].imag - iq_history[2].imag;
+    // Calculate output (I[1] * Q') - (Q[1] * I')
+    output = (iq_history[1].real * iq_dot.imag);
+    output -= (iq_history[1].imag * iq_dot.real);
+    // update history
+    iq_history[2] = iq_history[1];
+    iq_history[1] = iq_history[0];
+
+    if (output > FM_LIMIT) {
+        output = FM_LIMIT;
+    } else if (output < -FM_LIMIT) {
+        output = -FM_LIMIT;
+    }
+
+    // HPF for signal/noise detection
+    float out_high;
+    arm_biquad_cascade_df1_f32(&data->fm_demod.iir_snr_detector, &output, &out_high, 1);
+    out_high *= out_high;
+    data->fm_demod.hpf_env += (out_high - data->fm_demod.hpf_env) * 0.001f;
+
+    // Output scaling factor
+    float hpf_rms = arm_sqrt_f32(data->fm_demod.hpf_env);
+    // float k;
+    // Noise lvl ~ 0.07f;
+    // Signal lvl ~
+    // if (hpf_rms > 0.07f) {
+    //     // noise
+    //     k = 0.02f;
+    // } else {
+    //     k = 0.22f;
+    // }
+
+    // Low signal ~ rms 0.13f
+    // High signal ~ rms 0.10f
+    float k = (0.13f - hpf_rms) / (0.13f - 0.1f);
+    if (k < 0.0f) {
+        k = 0.0f;
+    } else if (k > 1.0f) {
+        k = 1.0f;
+    }
+    k = 0.05f + k * 0.09f;
+    // k = 0.13f;
+    // if (hpf_rms > 0.11f) {
+    //     k = 0.01f;
+    // }
+    data->fm_demod.avg_k += (k - data->fm_demod.avg_k) * 0.01f;
+
+    float scale_factor = data->fm_demod.avg_k / FM_LIMIT;
+
+    output = output * scale_factor;
+
+    if (data->fm_demod.emphasis_on) {
+        // De-emphasis
+        arm_biquad_cascade_df1_f32(&data->fm_demod.deemp_filter, &output, out, 1);
+    } else {
+        *out = output * 2.5f;
+    }
 }
 
 /**
  * Process AM/FM rx signal after demodulation
  */
-float am_fm_rx_process(float val, float *i, float *q, uint8_t modulation) {
-    // data_t *data = (data_t*)DATA_P;
+void am_fm_rx_process() {
+    float *demod = (float*) AM_FM_DEMOD;
 
     // Clear val array and fir decim state on change modulation
     arm_fir_decimate_instance_f32 *S = (arm_fir_decimate_instance_f32*)ARM_FIR_DECIMATE_INSTANCE_ADDR;
     float *val_acc = (float *)VAL_ACC_ARRAY;
 
-    if (data->prev_modulation != modulation) {
-        data->prev_modulation = modulation;
+    if (data->prev_modulation != *modulation) {
+        data->prev_modulation = *modulation;
         val_acc[0] = 0.0f;
         val_acc[1] = 0.0f;
         arm_fill_f32(0.0f, S->pState, S->numTaps + 2 - 1);
     }
 
-    switch (modulation)
+    float val = *demod;
+    switch (*modulation)
     {
         case MOD_AM:
             // remove DC offset
             val = dc_blocker(val, (1.0f - RX_AM_DC_BLOCKER_ALPHA), &data->rx_am_dc_blocker);
             break;
         case MOD_NFM:
+            // remove DC offset
             val = dc_blocker(val, (1.0f - RX_FM_DC_BLOCKER_ALPHA), &data->rx_fm_dc_blocker);
-            if (*sql) {
-                data->fm_sql.iq_squared_sum += *i * *i + *q * *q;
-                data->fm_sql.iq_squared_cnt++;
-                if (data->fm_sql.iq_squared_cnt >= 100) {
-                    data->fm_sql.iq_rms_db = lin2db(data->fm_sql.iq_squared_sum / 100.0f) / 2.0f;
-                    data->fm_sql.iq_squared_sum = 0.0f;
-                    data->fm_sql.iq_squared_cnt = 0;
-                }
-                if (data->fm_sql.iq_rms_db > (-110.0f + *sql)) {
-                    data->fm_sql.counter = 3000;
-                } else if (data->fm_sql.counter > 0) {
-                    data->fm_sql.counter--;
-                } else {
-                    val = 0.0f;
-                }
-            }
             break;
         default:
             break;
     }
-    return val;
+    *demod = val;
 }
 
 
@@ -991,22 +1192,8 @@ float am_fm_rx_process(float val, float *i, float *q, uint8_t modulation) {
  * Adaptive notch filter
  */
 
-/**
- * @brief Instance structure for the floating-point Biquad cascade filter.
- */
-typedef struct
-{
-    uint32_t numStages;   /**< number of 2nd order stages in the filter.  Overall order is 2*numStages. */
 
-    // {x[n-1], x[n-2], y[n-1], y[n-2]}
-    float *pState;        /**< Points to the array of state coefficients.  The array is of length 4*numStages. */
-
-    // {b10, b11, b12, a11, a12, b20, b21, b22, a21, a22, ...}
-    float *pCoeffs; /**< Points to the array of coefficients.  The array is of length 5*numStages. */
-} arm_biquad_casd_df1_inst_f32;
-
-
-void anf_update() {
+void anf_update(void) {
     arm_biquad_casd_df1_inst_f32 *flt = (arm_biquad_casd_df1_inst_f32 *)ARM_BIQUAD_CASD_DF1_INST_VALUE;
     const float k = 3e-3f;
 
@@ -1044,5 +1231,101 @@ void anf_update() {
             flt->pCoeffs[2] = gain;
             flt->pCoeffs[4] = -r * gain;
         }
+    }
+}
+
+
+/**
+ * Custom cmd parser
+ */
+
+// typedef struct __attribute__((__packed__)) {
+//     x6100_subcmd_enum_t cmd;
+//     uint32_t value:24;
+// } i2c_subcmd_t ;
+
+typedef union {
+    uint32_t i;
+    struct {
+        uint8_t flow_fp16: 1;
+        uint8_t fm_emp: 1;
+    } v;
+} x6100_reg_flow_fm_emp_flags_t;
+
+typedef union {
+    uint32_t i;
+    struct {
+        uint16_t adc_dac_gain_offset;  // bf16
+        uint16_t dac_gain_offset;  // bf16
+    } v;
+} x6100_reg_dac_adc_offsets_t;
+
+static void process_custom_cmd() {
+    union {
+        uint32_t i;
+        float32_t f;
+    } fuint;
+    {
+        x6100_reg_flow_fm_emp_flags_t reg = {i2c_regs[x6100_flow_fm_emp]};
+        if (data->flow.fmt != reg.v.flow_fp16) {
+            set_flow_params(reg.v.flow_fp16);
+        }
+        data->fm_demod.emphasis_on = reg.v.fm_emp;
+    }
+    if (i2c_regs[x6100_dac_adc_offsets] != data->i2c_raw.dac_adc_offsets) {
+        data->i2c_raw.dac_adc_offsets = i2c_regs[x6100_dac_adc_offsets];
+        x6100_reg_dac_adc_offsets_t reg = {data->i2c_raw.dac_adc_offsets};
+        fuint.i = reg.v.adc_dac_gain_offset << 16;
+        data->tx_amp_coeffs.adc_dac_gain_offset = fuint.f;
+        fuint.i = reg.v.dac_gain_offset << 16;
+        data->tx_amp_coeffs.dac_gain_offset = fuint.f;
+        data->tx_amp_coeffs.outdated = true;
+    }
+}
+
+void process_i2c_cmd(void) {
+    process_custom_cmd();
+
+    // COMP
+    if ((i2c_regs[x6100_cmplevel_cmpe] != data->i2c_raw.cmplevel_cmpe) || (data->comp.ratio_comp == 0.0f)) {
+        data->i2c_raw.cmplevel_cmpe = i2c_regs[x6100_cmplevel_cmpe];
+        float threshold_offset = (int8_t)((data->i2c_raw.cmplevel_cmpe >> 3) & 0xFC) * 0.125f;
+        float makeup_offset = (int8_t)((data->i2c_raw.cmplevel_cmpe >> 9) & 0xFC) * 0.125f;
+
+        // ratio configured with -2 offset: 0 -> 2:1, 1 -> 3:1, etc
+        data->comp.ratio_comp = *cmp_level + 2.0f;
+        data->comp.threshold = TH_COMP + threshold_offset;
+        data->comp.makeup = ((UNITY_LVL - data->comp.threshold) * (1.0f - 1.0f / data->comp.ratio_comp) - 2.0f) + makeup_offset;
+    }
+
+    // ANF
+    if (i2c_regs[x6100_dnfcnt_dnfwidth_dnfe] != data->i2c_raw.dnfcnt_dnfwidth_dnfe) {
+        data->i2c_raw.dnfcnt_dnfwidth_dnfe = i2c_regs[x6100_dnfcnt_dnfwidth_dnfe];
+        data->anf.enabled = (data->i2c_raw.dnfcnt_dnfwidth_dnfe >> 25) & 1;
+    }
+
+    // Update power-related coefficients, if power was changed
+    if (i2c_regs[x6100_rfg_txpwr] != data->i2c_raw.rfg_txpwr) {
+        data->i2c_raw.rfg_txpwr = i2c_regs[x6100_rfg_txpwr];
+        data->tx_amp_coeffs.outdated = true;
+
+        // fft dec
+        uint8_t fft_dec = (data->i2c_raw.rfg_txpwr >> 16) & 0xf;
+        fft_dec = fft_dec > 3 ? 3 : fft_dec;
+        if (data->flow.fft_dec != fft_dec) {
+            flow_collecting_reset();
+            data->flow.fft_dec = fft_dec;
+            data->flow_info.fft_dec = fft_dec;
+        }
+    }
+    if (i2c_regs[x6100_if_shift] != data->i2c_raw.if_shift) {
+        data->i2c_raw.if_shift = i2c_regs[x6100_if_shift];
+        data->if_shift.on = !((data->i2c_raw.if_shift >> 24) & 0xFF);
+        data->if_shift.freq = (int32_t)(data->i2c_raw.if_shift << 8) >> 8;
+        data->if_shift.step = data->if_shift.freq * M_TWOPI_F / 100000.0f;
+        // asm volatile (
+        //     "movs r3, #0x1 \n"
+        //     "strb.w r3, [r7, #0x25] \n"
+        // );
     }
 }

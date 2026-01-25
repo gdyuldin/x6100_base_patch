@@ -35,19 +35,46 @@ _jump_to_configure_wrapper:
 _configure_wrapper:
   bl GET_DMA_CR_REGISTER_VALUE    // call get_dma_cr_register_value
 
-  vpush {s0}
-  vpush {s8-s15}
-  push {r0-r5, ip, lr}
+  vpush {s0-s2}
+  vpush {s14-s15}
+  push {r0-r2, ip}
   bl _configure
-  pop {r0-r5, ip, lr}
-  vpop {s8-s15}
-  vpop {s0}
+  pop {r0-r2, ip}
+  vpop {s14-s15}
+  vpop {s0-s2}
 
   b _jump_to_configure_wrapper + 4
 
 .section .configure, "ax"
 _configure:
   nop
+
+
+// End of the DMA1 Stream3 IRQ handler (for float collecting updates)
+/*
+  08025b72 4f f4 80 62     mov.w   r2,#0x400
+*/
+
+.section .insert_to_dma_end, "ax"
+_jump_to_dma_end_wrapper:
+  b _dma_end_wrapper
+
+.section .dma_end_wrapper, "ax"
+_dma_end_wrapper:
+
+  // save func registers
+  push {r0-r2, ip}
+  bl _dma_end
+  pop {r0-r2, ip}
+
+  mov.w   r2,#0x400  // from original
+
+  b _jump_to_dma_end_wrapper + 4
+
+.section .dma_end, "ax"
+_dma_end:
+  nop
+
 
 
 // Convert IQ to float and apply an offset
@@ -62,8 +89,9 @@ _jump_to_apply_rx_iq_offset_wrapper:
 
 .section .apply_rx_iq_offset_wrapper, "ax"
 _apply_rx_iq_offset_wrapper:
+
   // save func registers
-  push {r1-r3}
+  push {r1-r3, lr}
   vpush {s11-s15}
 
   // push arguments, call func, pop arguments
@@ -74,7 +102,7 @@ _apply_rx_iq_offset_wrapper:
   vpop {RX_Q_REGISTER}
 
   vpop {s11-s15}
-  pop {r1-r3}
+  pop {r1-r3, lr}
 
   vmul.f32 RX_Q_REGISTER,RX_Q_REGISTER,s15  // from original
 
@@ -86,6 +114,10 @@ _apply_rx_iq_offset:
 
 
 // Compressor block
+/*
+   08024b18 0f f0 28 fc     bl      arm_biquad_cascade_df1_f32          arm_biquad_cascade_df1_f32(*S, *pSrc, *pDst, cnt)
+
+*/
 
 .section .insert_to_compress,"ax"
 _jump_to_compress:
@@ -94,25 +126,99 @@ _jump_to_compress:
 
 .section .compress_wrapper,"ax"
 _compress_wrapper:
-    // bl ARM_FIR_DECIMATE_F32          // arm_fir_decimate_f32
-    nop
-    nop
-    // bl ARM_BIQUAD_CASCADE_DF1_F32    // arm_biquad_cascade_df1_f32
-    // vldr.32 s0, [sp, #0x58]  // sp+0x58  tx_audio
-    vldr s0, [r1]
-    push {r0-r5, ip, lr}
-    vpush {s1-s15}
+    // Save pDst to stack
+    push {r2}
+    bl ARM_BIQUAD_CASCADE_DF1_F32
+    // Pop pDst to r0
+    pop {r0}
+
+    push {r0-r2, ip}
+    vpush {s0-s16}
 
     bl _compress
 
-    vpop {s1-s15}
-    pop {r0-r5, ip, lr}
-    vstr s0, [r1]
+    vpop {s0-s16}
+    pop {r0-r2, ip}
 
     b _jump_to_compress + 4
 
 .section .compress, "ax"
 _compress:
+    nop
+
+
+// am_modulation
+/*
+   08028608 a7 ee a6 7a     vfma.   s14,s15,s13
+
+   signal is s15
+   carrier_level is s14
+   am_level is s13
+   result - s14
+
+*/
+.section .insert_to_am_modulation,"ax"
+_jump_to_am_modulation:
+  b _am_modulation_wrapper
+
+
+.section .am_modulation_wrapper,"ax"
+_am_modulation_wrapper:
+    vpush {s0-s2}
+
+    vmov.f32 s0, s15
+    vmov.f32 s1, s14
+    vmov.f32 s2, s13
+
+    vpush {s12-s15}
+
+    bl _am_modulation
+
+    vpop {s12-s15}
+
+    vmov.f32 s14, s0
+
+    vpop {s0-s2}
+
+    b _jump_to_am_modulation + 4
+
+.section .am_modulation, "ax"
+_am_modulation:
+    nop
+
+
+// fm_modulate
+/*
+   08028634 06 f5 da 63     add.w   r3,r6,#0x6d0
+  audio in s15
+
+  ....
+
+     08028690 00 ee 10 0a     vmov    s0,r0
+
+    put phase to r0
+*/
+.section .insert_to_fm_modulate,"ax"
+_jump_to_fm_modulate:
+  b _fm_modulate_wrapper
+
+
+.section .fm_modulate_wrapper,"ax"
+_fm_modulate_wrapper:
+    push {r1-r3}
+    vpush {s13-s15}
+    vmov.f32    s0, s15
+
+    bl _fm_modulate
+
+    vmov r0, s0
+
+    vpop {s13-s15}
+    pop {r1-r3}
+    b 0x08028690
+
+.section .fm_modulate, "ax"
+_fm_modulate:
     nop
 
 
@@ -199,7 +305,35 @@ _tx_coeff_calc:
   nop
 
 
+
+// FM demodulation
+/*
+   08028b56 f9 f7 29 f8     bl      FM_demod_maybe                      void FM_demod_maybe(*S, float[2] iq, float res*, n)
+*/
+
+.section .insert_to_fm_demodulate, "ax"
+_jump_to_fm_demodulate_wrapper:
+  bl _fm_demodulate
+
+.section .fm_demodulate_wrapper, "ax"
+_fm_demodulate_wrapper:
+  nop
+/*
+  vstr.32 s0, [r2]  // from original code
+  push {r0-r4, lr}
+  vpush {s0-s16}
+  bl _fm_demodulate
+  vpop {s0-s16}
+  pop {r0-r4, lr}
+  b _jump_to_fm_demodulate_wrapper + 4
+*/
+
+.section .fm_demodulate, "ax"
+_fm_demodulate:
+  nop
+
 // AM/FM block
+
 /*
   Saving s14 (demoulated signal) to [r2,#0x8]
    08027de0 82 ed 02 7a     vstr.32 s14,[r2,#0x8]=>DAT_20008fa8
@@ -209,26 +343,33 @@ _tx_coeff_calc:
 
 */
 
+
 .section .insert_to_am_fm_rx_process, "ax"
 _jump_to_am_fm_rx_process_wrapper:
   b _am_fm_rx_process_wrapper
 
 .section .am_fm_rx_process_wrapper, "ax"
 _am_fm_rx_process_wrapper:
-  // save registers
-  vpush {s0}  // 1
-  VMOV s0,s14
-  vpush {s3-s15} // 13
-  push {r0-r5, ip, lr} // 8
-  ldrb.w r2, [sp, #RX_SP_OFFSET + ((1 + 13 + 8) * 4)]
-  LDR r0, =RX_I_SIGNAL
-  LDR r1, =RX_Q_SIGNAL
+  // save registers, load_data
+  vpush {s0}
+  vpush {s12-s15}
+  push {r0-r2}
+
   bl _am_fm_rx_process
-  pop {r0-r5, ip, lr}
-  vstr.32 s0,[r2,#0x8]  // Original code
-  vpop {s3-s15}
-  VMOV s14, s0
+
+  pop {r0-r2}
+  vpop {s12-s15}
   vpop {s0}
+
+  // load processed demodulated value
+  push {r3}
+  movw    r3,#0x8148
+  movt    r3,#0x2000
+  vldr.32 s14,[r3]
+  pop {r3}
+
+  vstr.32 s14,[r2,#0x8]  // Original code
+
   b _jump_to_am_fm_rx_process_wrapper + 4
 
 .section .am_fm_rx_process, "ax"
@@ -282,4 +423,89 @@ _copy_flow_wrapper:
 
 .section .copy_flow, "ax"
 _copy_flow:
+  nop
+
+/*
+*** Process MAIN i2c custom commands ***
+
+  Inject a process for unused i2c cmd to handle custom commands.
+
+   0802c1a0 01 f0 ee fa     bl      get_battery_data_maybe              undefined get_battery_
+   no args
+   no return
+*/
+.section .insert_to_process_i2c_cmd, "ax"
+_jump_to_process_i2c_cmd_wrapper:
+  b _process_i2c_cmd_wrapper
+
+.section .process_i2c_cmd_wrapper, "ax"
+_process_i2c_cmd_wrapper:
+  bl GET_BATTERY_DATA_MAYBE     //call get_battery_data_maybe
+  push {r0-r3, ip, lr}
+  vpush {s8-s15}
+  bl _process_i2c_cmd
+  vpop {s8-s15}
+  pop {r0-r3, ip, lr}
+  b _jump_to_process_i2c_cmd_wrapper + 4
+
+.section .process_i2c_cmd, "ax"
+_process_i2c_cmd:
+  nop
+
+
+/*
+*** Apply IF shift before demodulation ***
+
+
+   08024ac8 9d f8 07 31     ldrb.w  r3,[sp,#local_79] ([sp,#0x107])
+
+*/
+.section .insert_to_if_shift, "ax"
+_jump_to_if_shift_wrapper:
+  b _if_shift_wrapper
+
+.section .if_shift_wrapper, "ax"
+_if_shift_wrapper:
+  push {r0-r4, ip, lr}
+  vpush {s7-s15}
+  bl _if_shift
+  vpop {s7-s15}
+  pop {r0-r4, ip, lr}
+
+  ldrb.w r3, [sp,#0x107]  // Call original code
+
+  b _jump_to_if_shift_wrapper + 4
+
+.section .if_shift, "ax"
+_if_shift:
+  nop
+
+
+/*
+*** Apply IF shift on TX ***
+
+
+   0802d320 7b 61           str     r3,[r7,#0x14]
+   0802d322 2a e0           b       0x0802d37a
+
+*/
+.section .insert_to_tx_if_shift, "ax"
+_jump_to_tx_if_shift_wrapper:
+  b _tx_if_shift_wrapper
+
+.section .tx_if_shift_wrapper, "ax"
+_tx_if_shift_wrapper:
+  // Save r0, move r3 to fn arg
+  push {r0, r2}
+  mov r0, r3
+  bl _tx_if_shift
+  // Move result to r3, restore r0
+  mov r3, r0
+  pop {r0, r2}
+
+  str r3, [r7, #0x14] // Call original code
+  b 0x0802d37a
+
+.section .tx_if_shift, "ax"
+_tx_if_shift:
   nop

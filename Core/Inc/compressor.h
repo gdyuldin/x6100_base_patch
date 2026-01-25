@@ -6,26 +6,30 @@
 #include "stm32f4xx_hal.h"
 
 // from CMSIS-DSP Include/dsp/filtering_functions.h
-/**
-  @brief Instance structure for single precision floating-point FIR decimator.
- */
-typedef struct
-{
-    uint8_t M;            /**< decimation factor. */
-    uint16_t numTaps;     /**< number of coefficients in the filter. */
-    const float *pCoeffs; /**< points to the coefficient array. The array is of length numTaps.*/
-    float *pState;        /**< points to the state variable array. The array is of length numTaps+blockSize-1. */
-} arm_fir_decimate_instance_f32;
 
-extern float compress(float val);
+
+typedef struct {
+    float real;
+    float imag;
+} cfloat_t;
+
+extern void compress(float *val);
+extern float am_modulation(float val, float am_carrier_lvl, float am_level);
+extern float fm_preemphasis(float val);
 extern void init_data(void);
-extern void configure();
+extern void configure(void);
+extern void dma_end(void);
 extern void apply_rx_iq_offset(void);
-extern float am_fm_rx_process(float val, float *i, float *q, uint8_t modulation);
+extern void if_shift(void);
+extern int32_t tx_if_shift(int32_t lo_freq_shift);
+extern void fm_demodulate(void *_ignore, cfloat_t *iq_sample, float *out, uint32_t _n_samples);
+extern float fm_modulate(float val);
+extern void am_fm_rx_process();
 extern void tx_amp(float *i, float *q);
 extern void tx_coeff_calc(float pwr);
-extern void anf_update();
-extern uint32_t copy_flow_samples_to_arg(float *p_Dst);
+extern void anf_update(void);
+extern void process_i2c_cmd(void);
+extern uint32_t copy_flow(float *p_Dst);
 
 // extern void dump_boot(void);
 

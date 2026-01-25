@@ -65,22 +65,24 @@ int main(void)
 
   /* USER CODE BEGIN 1 */
   init_data();
-  compress(2.0f);
-  am_fm_rx_process(1.0f, NULL, NULL, 1);
+  compress(NULL);
+  fm_demodulate(NULL, NULL, NULL, 1);
+  am_fm_rx_process();
   configure();
+  dma_end();
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-  HAL_Init();
+  // HAL_Init();
 
   /* USER CODE BEGIN Init */
 
   /* USER CODE END Init */
 
   /* Configure the system clock */
-  SystemClock_Config();
+  // SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
 
@@ -96,14 +98,18 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-    compress(0.5f);
     float a, b;
     tx_amp(&a, &b);
     tx_coeff_calc(a);
     apply_rx_iq_offset();
     GPIOA->IDR;
     anf_update();
-    copy_flow_samples_to_arg(&a);
+    copy_flow(&a);
+    process_i2c_cmd();
+    if_shift();
+    tx_if_shift(1);
+    a = am_modulation(a, b, 1.0f);
+    b = fm_modulate(a);
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
