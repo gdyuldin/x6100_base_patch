@@ -51,7 +51,7 @@
 #define UNITY_LVL -5.2f
 
 // Level of microphone noise
-#define NOISE_LVL -43.0f
+#define NOISE_LVL -46.0f
 
 // Delay in samples
 #define COMP_DELAY 60
