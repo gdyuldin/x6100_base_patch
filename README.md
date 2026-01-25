@@ -9,6 +9,14 @@ Compiled firmwares might be downloaded at [firmwares](./firmwares/) directory.
 
 ## Changelog:
 
+### r8:
+* Added IF shift
+* Added fft_span (better zoom)
+* Added bf16 flow format
+* Replaced FM modulation/demodulation logic
+* Added FM pre/de-emphasis
+* Added DAC gain control
+
 ### r7:
 * Fix receiving unwanted signals for a few seconds after stop TX.  https://youtu.be/ljKug5yumMA
 
