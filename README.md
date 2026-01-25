@@ -16,6 +16,7 @@ Compiled firmwares might be downloaded at [firmwares](./firmwares/) directory.
 * Replaced FM modulation/demodulation logic
 * Added FM pre/de-emphasis
 * Added DAC gain control
+* Updated decimation/interpolation filters
 
 ### r7:
 * Fix receiving unwanted signals for a few seconds after stop TX.  https://youtu.be/ljKug5yumMA
