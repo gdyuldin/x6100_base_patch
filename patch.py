@@ -58,14 +58,14 @@ patchsets = {
         'apply_rx_iq_offset': 0x0802494c,
         'if_shift': 0x08024ac8,
         'tx_if_shift': 0x0802d320,
-        'compress': 0x0802539a,
-        'am_modulation': 0x08028608,
-        'fm_modulate': 0x08028634,
+        'compress': 0x0802539a, # TX
+        'am_modulation': 0x08028608,  # TX
+        'fm_modulate': 0x08028634,  # TX
         'tx_amp': 0x080253fa,
         'tx_coeff_calc': 0x08023e18,
-        'fm_demodulate': 0x08028b56,
-        'am_fm_rx_process': 0x08028b8e,
-        'anf_update': 0x08025bc8,
+        'fm_demodulate': 0x08028b56,  # RX
+        'am_fm_rx_process': 0x08028b8e,  # RX
+        'anf_update': 0x08025bc8,  # RX
         'copy_flow': 0x08033c88,
         'process_i2c_cmd': 0x0802c1a0,
         'build_time': 0x0803cebc,
@@ -442,7 +442,31 @@ def main():
             filter_params['file'], filter_params['numTaps']
         )
 
-    ver = "r8"
+    # Swap calling filters filters to solve CW AGC
+    # Was lpf1, lpf2, agc, hpf1, hpf1
+    # New lpf1, hpf1, agc, lpf2, hpf2
+    addr1 = 0x08024bc2 - flash_offset
+    addr2 = 0x08024c88 - flash_offset
+    tmp = dst[addr1: addr1 + 4]
+    dst[addr1: addr1 + 4] = dst[addr2: addr2 + 4]
+    dst[addr2: addr2 + 4] = tmp
+
+
+    # Replace IIR filters coeffs
+    lpf_addr = 0x0805be50 - flash_offset
+    hpf_addr = 0x0803dbe0 - flash_offset
+    with open("filters_lpf.data", "rb") as f:
+        data = f.read()
+        l = len(data)
+        dst[lpf_addr:lpf_addr+l] = data
+        print(f"lpf len: {l}")
+    with open("filters_hpf.data", "rb") as f:
+        data = f.read()
+        l = len(data)
+        dst[hpf_addr:hpf_addr+l] = data
+
+
+    ver = "r9"
     build_time = ver.encode() + bytes(11 - len(ver))
     assert len(build_time) < 12
     build_time_addr = patchset['build_time'] - flash_offset

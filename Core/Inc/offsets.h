@@ -54,6 +54,20 @@
 #define FLOW_SAMPLES_CPLX               (0x20007138)
 #define FLOW_N_SAMPLES                  (0x2000dd64)
 #define IQ_RF_FLOAT_IN                  (0x20005d18)
+#define RESET_FILTERS_STATE             (0x2000a6a8)
+
+#define ATT (0x2000e16c)
+#define PRE (0x2000e170)
+#define FIR_INTERP_8_STATE (0x200090c4)
+#define FIR_INTERP_8_BUF (0x200090e4)
+#define RX_FILTER_1_0_STATE (0x20009310)
+#define RX_FILTER_1_1_STATE (0x200093dc)
+#define RX_FILTER_2_0_STATE (0x200094a8)
+#define RX_FILTER_2_1_STATE (0x20009574)
+#define FIR_DECIM_2_STATE (0x20008f18)
+#define FIR_DECIM_2_BUF (0x20008fb0)
+#define FIR_DECIM_2_I (0x20008fac)
+
 
 #define AM_FM_RX_I                      (0x20008140)
 #define AM_FM_RX_Q                      (0x20008144)

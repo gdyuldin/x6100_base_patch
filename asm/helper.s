@@ -35,13 +35,13 @@ _jump_to_configure_wrapper:
 _configure_wrapper:
   bl GET_DMA_CR_REGISTER_VALUE    // call get_dma_cr_register_value
 
-  vpush {s0-s2}
-  vpush {s14-s15}
-  push {r0-r2, ip}
+  vpush {s0}
+  vpush {s14-s16}
+  push {r0-r3, ip}
   bl _configure
-  pop {r0-r2, ip}
-  vpop {s14-s15}
-  vpop {s0-s2}
+  pop {r0-r3, ip}
+  vpop {s14-s16}
+  vpop {s0}
 
   b _jump_to_configure_wrapper + 4
 
@@ -351,20 +351,17 @@ _jump_to_am_fm_rx_process_wrapper:
 .section .am_fm_rx_process_wrapper, "ax"
 _am_fm_rx_process_wrapper:
   // save registers, load_data
-  vpush {s0}
   vpush {s12-s15}
-  push {r0-r2}
+  push {r2-r3}
 
   bl _am_fm_rx_process
 
-  pop {r0-r2}
+  pop {r2-r3}
   vpop {s12-s15}
-  vpop {s0}
 
   // load processed demodulated value
   push {r3}
-  movw    r3,#0x8148
-  movt    r3,#0x2000
+  ldr     r3,=AM_FM_DEMOD
   vldr.32 s14,[r3]
   pop {r3}
 
@@ -442,8 +439,10 @@ _jump_to_process_i2c_cmd_wrapper:
 _process_i2c_cmd_wrapper:
   bl GET_BATTERY_DATA_MAYBE     //call get_battery_data_maybe
   push {r0-r3, ip, lr}
+  vpush {s0-s2}
   vpush {s8-s15}
   bl _process_i2c_cmd
+  vpop {s0-s2}
   vpop {s8-s15}
   pop {r0-r3, ip, lr}
   b _jump_to_process_i2c_cmd_wrapper + 4
