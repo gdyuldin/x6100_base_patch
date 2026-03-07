@@ -9,6 +9,11 @@ Compiled firmwares might be downloaded at [firmwares](./firmwares/) directory.
 
 ## Changelog:
 
+### r9:
+* Fixed AGC on CW
+* Updated filters (less bandpass ripple and "ringing", bit wide transition)
+* Added TX bandpass filter control
+
 ### r8:
 * Added IF shift
 * Added fft_span (better zoom)
