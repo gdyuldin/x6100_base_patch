@@ -56,6 +56,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/external.c
     Core/Src/compressor.c
     Core/Src/iirdecim.c
+    Core/Src/noise_reduction.c
     # Add user sources here
 )
 

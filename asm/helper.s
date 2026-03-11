@@ -22,7 +22,7 @@
 
   At begin of the DMA stream handler
 
-   08023c36 09 f0 7b f9     bl      get_dma_cr_register_value (0802cf30)           uint get_dma_cr_regist
+   08023c36 09 f0 7b f9     bl      get_dma_cr_register_value (0802cf30)           uint get_dma_cr_register
    args - r0
    return -r0
 */
@@ -247,7 +247,7 @@ _init_data:
    08024b66 a2 f5 96 70     sub.w   nrthr_small_piece_inverted=>DAT_20
    08024b6a 01 23           movs    modulation,#0x1
    08024b6c 18 a9           add     r1,sp,#0x60
-   08024b6e 0e f0 af fd     bl      arm_fir_interpolate_f32             void arm_fir_interpola (0x080336d0)
+   08024b6e 0e f0 af fd     bl      arm_fir_interpolate_f32             void arm_fir_interpolation (0x080336d0)
 
    sp + 0x60 - I signal
    sp + 0x64 - Q signal
@@ -335,7 +335,7 @@ _fm_demodulate:
 // AM/FM block
 
 /*
-  Saving s14 (demoulated signal) to [r2,#0x8]
+  Saving s14 (demodulated signal) to [r2,#0x8]
    08027de0 82 ed 02 7a     vstr.32 s14,[r2,#0x8]=>DAT_20008fa8
 
   I and Q in 20008138 and 2000813c
@@ -507,4 +507,36 @@ _tx_if_shift_wrapper:
 
 .section .tx_if_shift, "ax"
 _tx_if_shift:
+  nop
+
+
+/*
+*** Noise reduction ***
+   08024d76 50 f8 04 0c     ldr.w   r0,[r0,#-0x4]=>DEMOD_AUDIO
+
+r0 is a pointer to sample + 4
+
+
+*/
+.section .insert_to_nr_apply, "ax"
+_jump_to_nr_apply_wrapper:
+  b _nr_apply_wrapper
+
+.section .nr_apply_wrapper, "ax"
+_nr_apply_wrapper:
+
+  vpush {s0}
+  vpush {s5-s16}
+  push {ip, r1-r3}
+  // ldr r0,=DEMOD_AUDIO
+  // ADRL R0, DEMOD_AUDIO
+  vldr s0, [r0, #-0x4]
+  bl _nr_apply
+  pop {ip, r1-r3}
+  vpop {s5-s16}
+  vpop {s0}
+  b 0x08024d88
+
+.section .nr_apply, "ax"
+_nr_apply:
   nop

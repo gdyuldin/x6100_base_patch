@@ -41,20 +41,20 @@ target_sources(stm32cubemx INTERFACE
     # ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal.c
     # ../../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_exti.c
     ../../Core/Src/system_stm32f4xx.c
-    # ../../Middlewares/Third_Party/ARM_CMSIS/Source/BasicMathFunctions/BasicMathFunctions.c
+    ../../Middlewares/Third_Party/ARM_CMSIS/Source/BasicMathFunctions/BasicMathFunctions.c
     # ../../Middlewares/Third_Party/ARM_CMSIS/Source/QuaternionMathFunctions/QuaternionMathFunctions.c
     # ../../Middlewares/Third_Party/ARM_CMSIS/Source/BayesFunctions/BayesFunctions.c
     ../../Middlewares/Third_Party/ARM_CMSIS/Source/CommonTables/CommonTables.c
-    # ../../Middlewares/Third_Party/ARM_CMSIS/Source/ComplexMathFunctions/ComplexMathFunctions.c
+    ../../Middlewares/Third_Party/ARM_CMSIS/Source/ComplexMathFunctions/ComplexMathFunctions.c
     ../../Middlewares/Third_Party/ARM_CMSIS/Source/ControllerFunctions/ControllerFunctions.c
     # ../../Middlewares/Third_Party/ARM_CMSIS/Source/DistanceFunctions/DistanceFunctions.c
     # ../../Middlewares/Third_Party/ARM_CMSIS/Source/FastMathFunctions/FastMathFunctions.c
-    # ../../Middlewares/Third_Party/ARM_CMSIS/Source/FilteringFunctions/FilteringFunctions.c
+    ../../Middlewares/Third_Party/ARM_CMSIS/Source/FilteringFunctions/FilteringFunctions.c
     # ../../Middlewares/Third_Party/ARM_CMSIS/Source/MatrixFunctions/MatrixFunctions.c
     # ../../Middlewares/Third_Party/ARM_CMSIS/Source/StatisticsFunctions/StatisticsFunctions.c
-    # ../../Middlewares/Third_Party/ARM_CMSIS/Source/SupportFunctions/SupportFunctions.c
+    ../../Middlewares/Third_Party/ARM_CMSIS/Source/SupportFunctions/SupportFunctions.c
     # ../../Middlewares/Third_Party/ARM_CMSIS/Source/SVMFunctions/SVMFunctions.c
-    # ../../Middlewares/Third_Party/ARM_CMSIS/Source/TransformFunctions/TransformFunctions.c
+    ../../Middlewares/Third_Party/ARM_CMSIS/Source/TransformFunctions/TransformFunctions.c
     # ../../Middlewares/Third_Party/ARM_CMSIS/Source/InterpolationFunctions/InterpolationFunctions.c
     # ../../Middlewares/Third_Party/ARM_CMSIS/Source/WindowFunctions/WindowFunctions.c
     # ../../Middlewares/Third_Party/ARM_CMSIS/Source/BasicMathFunctions/BasicMathFunctionsF16.c

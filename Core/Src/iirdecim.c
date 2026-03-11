@@ -1,5 +1,6 @@
 
 #include "iirdecim.h"
+#include <dsp/filtering_functions.h>
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(*x))
 

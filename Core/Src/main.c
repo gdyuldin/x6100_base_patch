@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "compressor.h"
+#include "noise_reduction.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -70,6 +71,8 @@ int main(void)
   am_fm_rx_process();
   configure();
   dma_end();
+  nr_init();
+  nr_setup_filters();
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -110,6 +113,7 @@ int main(void)
     tx_if_shift(1);
     a = am_modulation(a, b, 1.0f);
     b = fm_modulate(a);
+    nr_apply(a);
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */

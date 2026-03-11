@@ -66,17 +66,18 @@ patchsets = {
         'fm_demodulate': 0x08028b56,  # RX
         'am_fm_rx_process': 0x08028b8e,  # RX
         'anf_update': 0x08025bc8,  # RX
+        'noise_reduction': 0x08024d70,
         'copy_flow': 0x08033c88,
         'process_i2c_cmd': 0x0802c1a0,
         'build_time': 0x0803cebc,
         'external_fn': {
-            'setup_biquad_filter': 0x08021764,
-            'arm_fill_f32': 0x08034a90,
+            # 'setup_biquad_filter': 0x08021764,
+            # 'arm_fill_f32': 0x08034a90,
             'arm_biquad_cascade_df1_f32': 0x08036024,
             'print_str': 0x080378ac,
             'arm_sqrt_f32': 0x0803c0d4,
-            'arm_copy_f32': 0x08034acc,
-            'arm_fir_decimate_f32': 0x08035cac,
+            # 'arm_copy_f32': 0x08034acc,
+            # 'arm_fir_decimate_f32': 0x08035cac,
             'arm_sin_f32': 0x08036394,
             'arm_cos_f32': 0x0803641c,
         },
@@ -308,7 +309,8 @@ class InjectFunctions:
     def copy_code(self, src: bytes, dst: bytearray):
         # Copy all from *(.text*) to main function
         start = get_section_start("*(.text*)")
-        end, _ = get_block_start_end("Reset_Handler", "text")
+        # end, _ = get_block_start_end("Reset_Handler", "text")
+        end, _ = get_rodata_start_end()
         start -= self.flash_offset
         end -= self.flash_offset
         dst[start: end] = src[start: end]
@@ -400,10 +402,12 @@ def main():
         InjectFunction("am_modulation", patchset["am_modulation"]),  # soft limit AM signal and modulate
         InjectFunction("fm_modulate", patchset["fm_modulate"]),  # fm modulation prepare
         InjectFunction("tx_amp", patchset["tx_amp"]),  # amp IQ according to configured TX power
+
         InjectFunction("tx_coeff_calc", patchset["tx_coeff_calc"]),  # update coefficients for IQ on TX power change
         InjectFunction("fm_demodulate", patchset["fm_demodulate"]),  # Demodulate FM
         InjectFunction("am_fm_rx_process", patchset["am_fm_rx_process"]),  # process AM/FM rx (sql, dc blocker)
         InjectFunction("anf_update", patchset["anf_update"]),  # update notch filter params
+        InjectFunction("nr_apply", patchset["noise_reduction"]),  # update notch filter params
         InjectFunction("copy_flow", patchset["copy_flow"]),  # copy data samples to flow with changes
         InjectFunction("process_i2c_cmd", patchset["process_i2c_cmd"]),  # handle i2c commands
     ], asm_o_file=o_file, flash_offset=flash_offset, orig_fw_size=len(orig_code), rodata_start=rodata_start, rodata_end=rodata_end)
@@ -466,7 +470,7 @@ def main():
         dst[hpf_addr:hpf_addr+l] = data
 
 
-    ver = "r9"
+    ver = "r10"
     build_time = ver.encode() + bytes(11 - len(ver))
     assert len(build_time) < 12
     build_time_addr = patchset['build_time'] - flash_offset

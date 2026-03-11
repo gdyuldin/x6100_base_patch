@@ -4,6 +4,8 @@
 
 #include "offsets.h"
 
+#include "noise_reduction.h"
+
 #include "math.h"
 #include "stdbool.h"
 #include "log10f.c"
@@ -265,7 +267,7 @@ typedef struct {
         } avg_freq;
     } flow;
 
-    // FM demoulation
+    // FM demodulation
     struct {
         cfloat_t iq_history[3];
         float avg_k;
@@ -570,7 +572,7 @@ uint32_t copy_flow(float *p_Dst) {
     // TIM2->PSC = 80;
     // TIM2->ARR = 16000;
     // TIM2->EGR = TIM_EGR_UG;
-    // // Force autoreloading
+    // // Force auto reloading
     // TIM2->CR1 |= TIM_CR1_ARPE;
     // if ((data->flow.read_p == data->flow.data) && (TIM2->PSC != 20)) {
     //     TIM2->PSC = 20;
@@ -713,6 +715,9 @@ __attribute__((optimize("O1"))) void init_data(void) {
 
     data->i2c_raw.tx_filters.v.low = 160;
     data->i2c_raw.tx_filters.v.high = 3000;
+
+    // Noise reduction init
+    nr_init();
 }
 
 
@@ -769,7 +774,7 @@ static void reset_filters_states_on_changes() {
         {(float*)FIR_INTERP_8_STATE, 8},
         {(float*)FIR_INTERP_8_BUF, 8},
 
-        // fitlers 1-2
+        // filters 1-2
         {(float*)RX_FILTER_1_0_STATE, 0x14},
         {(float*)RX_FILTER_1_1_STATE, 0x14},
         {(float*)RX_FILTER_2_0_STATE, 0x14},
@@ -833,11 +838,12 @@ void configure(void) {
             ring_buf_reset(&data->comp.dline);
         }
     }
+    nr_setup_filters();
 }
 
 
 /**
- * Patches for colleting flow. Called at end of the DMA process.
+ * Patches for collecting flow. Called at end of the DMA process.
  */
 
 void dma_end(void) {
@@ -930,11 +936,11 @@ void if_shift(void) {
     data->if_shift.angle = angle;
 }
 
-int32_t tx_if_shift(int32_t lo_freq_shif) {
+int32_t tx_if_shift(int32_t lo_freq_shift) {
     if (data->if_shift.on) {
-        lo_freq_shif += data->if_shift.freq;
+        lo_freq_shift += data->if_shift.freq;
     }
-    return lo_freq_shif;
+    return lo_freq_shift;
 }
 
 /**
@@ -956,7 +962,7 @@ __noinline void tx_coeff_calc(float pwr) {
         if (pow_scale <= 0.0f) {
             k = 1.0f;
         } else {
-            k = arm_sqrt_f32(pow_scale);
+            k = sqrt_f32(pow_scale);
         }
     } else {
         k = 1.0f;
@@ -1029,7 +1035,7 @@ __attribute__((noinline, optimize("O2"))) void compress(float *pval) {
     float rms;
     float squared_mean = data->comp.squared_sum / data->comp.squared_acc.size;
     if (squared_mean >= 0) {
-        rms = arm_sqrt_f32(squared_mean);
+        rms = sqrt_f32(squared_mean);
     } else {
         rms = 0.0f;
     }
@@ -1163,7 +1169,7 @@ void fm_demodulate(void *S, cfloat_t *iq_sample, float *out, uint32_t _n_samples
         }
     }
 
-    mag = arm_sqrt_f32(mag);
+    mag = sqrt_f32(mag);
 
     if (mag > 0.0f) {
         // save input
@@ -1199,7 +1205,7 @@ void fm_demodulate(void *S, cfloat_t *iq_sample, float *out, uint32_t _n_samples
     data->fm_demod.hpf_env += (out_high - data->fm_demod.hpf_env) * 0.001f;
 
     // Output scaling factor
-    float hpf_rms = arm_sqrt_f32(data->fm_demod.hpf_env);
+    float hpf_rms = sqrt_f32(data->fm_demod.hpf_env);
     // float k;
     // Noise lvl ~ 0.07f;
     // Signal lvl ~
@@ -1296,13 +1302,14 @@ void anf_update(void) {
         data->anf.an = an;
 
         // update_coeffs
-        flt->pCoeffs[1] = -an * gain;
-        flt->pCoeffs[3] = -flt->pCoeffs[1];
+        float *coeffs = (float *)flt->pCoeffs;
+        coeffs[1] = -an * gain;
+        coeffs[3] = -flt->pCoeffs[1];
 
-        if (flt->pCoeffs[0] != gain) {
-            flt->pCoeffs[0] = gain;
-            flt->pCoeffs[2] = gain;
-            flt->pCoeffs[4] = -r * gain;
+        if (coeffs[0] != gain) {
+            coeffs[0] = gain;
+            coeffs[2] = gain;
+            coeffs[4] = -r * gain;
         }
     }
 }
