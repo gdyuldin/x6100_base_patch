@@ -80,6 +80,9 @@
 
 #define FILTER_FREQUENCIES              (0x2000a8c4)
 
+#define AGC_ON                          (0x2000a8b0)
+#define AGC_SCALE                       (0x2000a888)
+
 #endif
 
 #endif

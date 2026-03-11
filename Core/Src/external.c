@@ -1,5 +1,10 @@
 #include "external.h"
 
+// Modulation pointer
+uint8_t* modulation = (uint8_t*)MODULATION_ADDR;
+
+volatile uint8_t *tx_flag = (uint8_t *)TX_FLAG_VALUE;
+
 /*
 External functions fake implementations
 */

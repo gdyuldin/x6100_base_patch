@@ -48,6 +48,6 @@ typedef struct
 
 int nr_init(void);
 void nr_setup_filters(void);
-int nr_apply(float sample);
+void nr_apply(float sample);
 
 #endif // __NOISE_REDUCTION_H

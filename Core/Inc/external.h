@@ -2,9 +2,24 @@
 #define __EXTERNAL_H
 
 #include "stdint.h"
+#include "offsets.h"
 
 #define M_PI_F 3.14159265358979323846f
 #define M_TWOPI_F 6.283185307179586f
+
+enum __attribute__((__packed__)) mod_t {
+    MOD_LSB,
+    MOD_LSB_D,
+    MOD_USB,
+    MOD_USB_D,
+    MOD_CW,
+    MOD_CWR,
+    MOD_AM,
+    MOD_NFM,
+};
+
+extern uint8_t* modulation __attribute((section(".rodata.patch_data")));
+extern volatile uint8_t *tx_flag __attribute((section(".rodata.patch_data")));
 
 // /**
 //  * @brief Instance structure for the floating-point Biquad cascade filter.
@@ -48,7 +63,8 @@ __attribute__((noinline, section(".arm_cos_f32_sec")));
 
 extern void setup_biquad_filter(float sampling_rate, float freq_low, float freq_high,
     void *flt_S, int param_5) __attribute__((noinline, section(".setup_biquad_filter_sec")));
-    // extern void arm_fir_decimate_f32(arm_fir_decimate_instance_f32 *S,float *pSrc,float *pDst,uint32_t blockSize) __attribute__((noinline, section(".arm_fir_decimate_f32_sec")));
+
+// extern void arm_fir_decimate_f32(arm_fir_decimate_instance_f32 *S,float *pSrc,float *pDst,uint32_t blockSize) __attribute__((noinline, section(".arm_fir_decimate_f32_sec")));
 
 extern float sqrt_f32(float val) __attribute__((noinline, section(".arm_sqrt_f32_sec")));
 

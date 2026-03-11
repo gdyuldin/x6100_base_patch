@@ -71,7 +71,7 @@ patchsets = {
         'process_i2c_cmd': 0x0802c1a0,
         'build_time': 0x0803cebc,
         'external_fn': {
-            # 'setup_biquad_filter': 0x08021764,
+            'setup_biquad_filter': 0x08021764,
             # 'arm_fill_f32': 0x08034a90,
             'arm_biquad_cascade_df1_f32': 0x08036024,
             'print_str': 0x080378ac,
@@ -173,22 +173,17 @@ def get_block_start_end(name, section_prefix="text"):
                 return start_addr, end_addr
 
 
-def get_rodata_start_end():
-    start_addr = None
-    with open(f"build/Release/{prog_name}.map") as f:
-        while True:
-            line = next(f)
-            if line.startswith(".rodata "):
-                start_addr = int(line.split()[1], 16)
-            elif start_addr and line.strip() and not line.startswith(" "):
-                try:
-                    end_addr = int(line.split()[1], 16)
-                except Exception as exc:
-                    print("Cant find rodata end:", exc)
-                    return start_addr, start_addr
-                else:
-                    print(f".rodata start: {start_addr:x}, end: {end_addr:x}, len: {(end_addr - start_addr):x}")
-                    return start_addr, end_addr
+def get_rodata_start_end(elf):
+    cmd = shlex.split(f"arm-none-eabi-objdump {elf} -h -j .rodata")
+    res = subprocess.check_output(cmd)
+    for line in res.splitlines():
+        if b" .rodata " in line:
+            items = line.split()
+            start_addr = int(items[3], 16)
+            size = int(items[2], 16)
+            return start_addr, start_addr + size
+    else:
+        raise RuntimeError("Cant find rodata addr")
 
 
 def get_section_start(name):
@@ -310,7 +305,7 @@ class InjectFunctions:
         # Copy all from *(.text*) to main function
         start = get_section_start("*(.text*)")
         # end, _ = get_block_start_end("Reset_Handler", "text")
-        end, _ = get_rodata_start_end()
+        end = self.rodata_start
         start -= self.flash_offset
         end -= self.flash_offset
         dst[start: end] = src[start: end]
@@ -389,7 +384,7 @@ def main():
     o_file = "asm/helper.o"
     compile_patch_helper(asm, o_file, date=patchset["date"])
 
-    rodata_start, rodata_end = get_rodata_start_end()
+    rodata_start, rodata_end = get_rodata_start_end(f"build/Release/{prog_name}.elf")
 
     functions = InjectFunctions([
         InjectFunction("init_data", patchset["init_data"]),  # fill ram area with zeros
@@ -407,7 +402,7 @@ def main():
         InjectFunction("fm_demodulate", patchset["fm_demodulate"]),  # Demodulate FM
         InjectFunction("am_fm_rx_process", patchset["am_fm_rx_process"]),  # process AM/FM rx (sql, dc blocker)
         InjectFunction("anf_update", patchset["anf_update"]),  # update notch filter params
-        InjectFunction("nr_apply", patchset["noise_reduction"]),  # update notch filter params
+        InjectFunction("nr_apply", patchset["noise_reduction"]),  # noise reduction
         InjectFunction("copy_flow", patchset["copy_flow"]),  # copy data samples to flow with changes
         InjectFunction("process_i2c_cmd", patchset["process_i2c_cmd"]),  # handle i2c commands
     ], asm_o_file=o_file, flash_offset=flash_offset, orig_fw_size=len(orig_code), rodata_start=rodata_start, rodata_end=rodata_end)

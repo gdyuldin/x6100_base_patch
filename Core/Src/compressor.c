@@ -102,17 +102,6 @@ I2C_REG_T({
 }) x6100_reg_tx_filter_t;
 
 
-enum __attribute__((__packed__)) mod_t {
-    MOD_LSB,
-    MOD_LSB_D,
-    MOD_USB,
-    MOD_USB_D,
-    MOD_CW,
-    MOD_CWR,
-    MOD_AM,
-    MOD_NFM,
-};
-
 enum __attribute__((__packed__)) rx_tx_process_state {
     RX_TX_STATE_NORMAL,
     RX_TX_STATE_PIN_DISCHARGE,
@@ -321,9 +310,6 @@ static data_t *data = &data_arr;
  * Actual values pointers
  */
 
-// Modulation pointer
-static enum mod_t *modulation = (enum mod_t *)MODULATION_ADDR;
-
 // Compressor values
 static uint8_t *cmp_enabled = (uint8_t *)CMP_ENABLED_VALUE;
 static uint8_t *cmp_level = (uint8_t *)CMP_LEVEL_VALUE;
@@ -337,8 +323,6 @@ static uint32_t *flow_reserved_3 = (uint32_t*)FLOW_RESERVED_ADDR;
 
 // I2C registers values start pointer
 static uint32_t *i2c_regs = (uint32_t *)I2C_REGS_ADDR;
-
-static volatile uint8_t *tx_flag = (uint8_t *)TX_FLAG_VALUE;
 
 static float *am_carrier_lvl = (float *)AM_CARRIER_LEVEL_VALUE;
 static float *fm_depth_of_mod = (float *)FM_DEPTH_OF_MOD_VALUE;

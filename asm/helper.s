@@ -526,14 +526,14 @@ _jump_to_nr_apply_wrapper:
 _nr_apply_wrapper:
 
   vpush {s0}
-  vpush {s5-s16}
-  push {ip, r1-r3}
+  vpush {s7-s16}
+  push {r1-r3, ip}
   // ldr r0,=DEMOD_AUDIO
   // ADRL R0, DEMOD_AUDIO
   vldr s0, [r0, #-0x4]
   bl _nr_apply
-  pop {ip, r1-r3}
-  vpop {s5-s16}
+  pop {r1-r3, ip}
+  vpop {s7-s16}
   vpop {s0}
   b 0x08024d88
 

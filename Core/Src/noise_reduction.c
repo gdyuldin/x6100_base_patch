@@ -1,12 +1,20 @@
 #include "noise_reduction.h"
 #include "offsets.h"
+#include "external.h"
 
 #define ARM_RFFT_INIT_HELPER(n) arm_rfft_fast_init_ ##n## _f32
 #define ARM_RFFT_INIT(x) ARM_RFFT_INIT_HELPER(x)
 
-#define CLIP(a, l, h) (MAX(MIN(a, h), l))
+#define CLIP(x, low, high) ({\
+  __typeof__(x) __x = (x); \
+  __typeof__(low) __low = (low);\
+  __typeof__(high) __high = (high);\
+  __x > __high ? __high : (__x < __low ? __low : __x);\
+})
+
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(*a))
 #define ABS(x) (x < 0 ? -x: x)
+
 
 static inline void roll_left(float *pSrc, size_t steps, size_t srcSize);
 static inline void lpr_noise_profile(float *mag, size_t len);
@@ -49,7 +57,7 @@ const float window[NR_NFFT] = {
 };
 
 const float mask_convolve_kernel[] = {
-    3.225806e-02f,	9.677419e-02f,	1.612903e-01f,	2.258065e-01f,	2.258065e-01f,	1.612903e-01f,	9.677419e-02f,
+    6.250000e-02f,	1.250000e-01f,	1.875000e-01f,	2.500000e-01f,	1.875000e-01f,	1.250000e-01f,	6.250000e-02f,
 };
 
 int nr_init(void)
@@ -105,25 +113,44 @@ void nr_setup_filters(void) {
     uint32_t low2 = ABS(filter_frequencies[1].low);
     uint32_t high1 = ABS(filter_frequencies[0].high);
     uint32_t high2 = ABS(filter_frequencies[1].high);
-    low1 = MAX(low1, low2);
-    high1 = MIN(high1, high2);
+    low1 = MIN(low1, low2);
+    high1 = MAX(high1, high2);
+
+    if ((*modulation == MOD_AM) || (*modulation == MOD_NFM)) {
+        low1 = 50;
+    };
 
     int32_t low_bin = low1 * NR_NFFT / NR_SAMPLING_RATE - 2;
     int32_t high_bin = high1 * NR_NFFT / NR_SAMPLING_RATE + 2;
 
-    nr_data.filter_low_bin = MAX(low_bin, 1);
+    nr_data.filter_low_bin = MAX(low_bin, 0);
     nr_data.filter_high_bin = MIN(high_bin, NR_MASK_SIZE - 1);
+    nr_data.filter_high_bin = MAX(nr_data.filter_high_bin, nr_data.filter_low_bin + 2);
 }
 
-int nr_apply(float sample)
+void nr_apply(float sample)
 {
     uint8_t *nre_flag = (uint8_t *)NRE_FLAG;
     float *nrthr = (float *)NR_THR_F;
     uint32_t *nr_out_write = (uint32_t *)NR_OUT_WRITE;
     float *nr_out_buf = (float *)NR_OUT_BUF;
 
+    float agc_scale = *(float*)AGC_SCALE;
+    uint8_t agc_on = *(uint8_t*)AGC_ON;
+
+
     if (*nre_flag == 0) {
-        return 0;
+        return;
+    }
+
+    if (*tx_flag) {
+        return;
+    }
+
+    if (!agc_on) {
+        agc_scale = 1.0f;
+    } else {
+        agc_scale = 1000.0f / agc_scale;
     }
 
     // Copy data to buf
@@ -135,57 +162,78 @@ int nr_apply(float sample)
 
     if (nr_data.in_buf_i >= NR_NFFT) {
 
-        // Apply window
+        /* Apply window */
         float *in_chunk = buf1;
         arm_mult_f32(nr_data.in_buf, window, in_chunk, NR_NFFT);
         roll_left(nr_data.in_buf, NR_HOP, NR_NFFT);
         nr_data.in_buf_i = NR_NFFT - NR_HOP;
 
-        // FFT
+        /* FFT */
         float *z = buf2;
         arm_rfft_fast_f32(&nr_data.rfft, in_chunk, z, 0);
 
-        // Compute magnitude
+        /* Compute magnitude (only for filtered fft bins) */
         float mag[NR_MASK_SIZE];
-        arm_cmplx_mag_f32(z + 2, mag, NR_MASK_SIZE);
+        arm_fill_f32(0.0f, mag, NR_MASK_SIZE);
+        uint32_t n_bins = nr_data.filter_high_bin - nr_data.filter_low_bin;
+        // get mag from low to high
+        arm_cmplx_mag_f32(z + 2 + nr_data.filter_low_bin * 2, mag + nr_data.filter_low_bin, n_bins);
 
-        // Compute mask
+
+        /* Compute noise profile */
+        for (size_t i = nr_data.filter_low_bin; i < nr_data.filter_high_bin; i++)
+        {
+            // Revert AGC
+            mag[i] *= agc_scale;
+            float diff = mag[i] - nr_data.profile[i];
+            if (diff > 0) {
+                nr_data.profile[i] += diff * nr_data.profile_grow_alpha;
+            } else {
+                nr_data.profile[i] += diff * nr_data.profile_fall_alpha;
+            }
+        }
+
+        /* Compute mask */
         float mask[NR_MASK_SIZE];
-        float offset = *nrthr / 10.0f;
-        for (size_t i = 0; i < NR_MASK_SIZE; i++)
+        arm_fill_f32(0.0f, mask, NR_MASK_SIZE);
+        float offset = *nrthr / 15.0f + 0.25f;
+        float scale = nr_data.slope / 6;
+        for (size_t i = nr_data.filter_low_bin; i < nr_data.filter_high_bin; i++)
         {
             // np.clip((mag / self.thresholds - 1 + 3 - offset) * slope / 6, 0, 1)
-            float val = ((mag[i] / nr_data.profile[i] + 0.5f - offset) * nr_data.slope * nr_data.freq_corr[i]) / 6;
-            mask[i] = CLIP(val, 0, 1);
+            float val = (mag[i] / nr_data.profile[i] - offset) * scale * nr_data.freq_corr[i];
+            mask[i] = CLIP(val, 0.03f, 1.0f);
             nr_data.mask_avg[i] += (mask[i] - nr_data.mask_avg[i]) * nr_data.mask_avg_alpha;
         }
 
-        // Convolve mask
+        /* Convolve mask */
         float conv_mask[NR_MASK_SIZE + ARRAY_SIZE(mask_convolve_kernel) - 1];
-        arm_conv_f32(nr_data.mask_avg, NR_MASK_SIZE, mask_convolve_kernel, ARRAY_SIZE(mask_convolve_kernel), conv_mask);
+        arm_fill_f32(0.0f, conv_mask, ARRAY_SIZE(conv_mask));
+        arm_conv_f32(
+            nr_data.mask_avg + nr_data.filter_low_bin, n_bins,
+            mask_convolve_kernel, ARRAY_SIZE(mask_convolve_kernel),
+            conv_mask + nr_data.filter_low_bin);
         float *conv_mask_aligned = conv_mask + (ARRAY_SIZE(mask_convolve_kernel) - 1) / 2;
 
-        // Zero outside filters
-        arm_fill_f32(0.0f, conv_mask_aligned, nr_data.filter_low_bin);
-        arm_fill_f32(0.0f, conv_mask_aligned + nr_data.filter_high_bin, NR_MASK_SIZE - nr_data.filter_high_bin);
 
+        arm_fill_f32(0.0f, buf1, ARRAY_SIZE(buf1));
         float *z_filtered = buf1;
-        // arm_copy_f32(z, z_filtered, NR_NFFT);
-        arm_cmplx_mult_real_f32(z + 2, conv_mask_aligned, z_filtered + 2, NR_MASK_SIZE);
-        // Set 0 for first and last
-        z_filtered[0] = 0;
-        z_filtered[1] = 0;
 
-        // IFFT
+        arm_cmplx_mult_real_f32(
+            z + 2 + nr_data.filter_low_bin * 2,
+            conv_mask_aligned + nr_data.filter_low_bin,
+            z_filtered + 2 + nr_data.filter_low_bin * 2, n_bins);
+
+        /* IFFT */
         float *out_chunk = buf2;
         arm_rfft_fast_f32(&nr_data.rifft, z_filtered, out_chunk, 1);
 
-        // Window, sum and norm
+        /* Window, sum and norm */
         arm_mult_f32(out_chunk, window, out_chunk, NR_NFFT);
         arm_add_f32(out_chunk, nr_data.out_buf, nr_data.out_buf, NR_NFFT);
         arm_mult_f32(nr_data.out_buf, nr_data.norm, nr_data.out_buf, NR_HOP);
 
-        // Copy output to buf
+        /* Copy output to buf */
         uint32_t write = *nr_out_write;
         for (size_t i = 0; i < NR_HOP; i++)
         {
@@ -194,11 +242,10 @@ int nr_apply(float sample)
         }
         *nr_out_write = write;
 
-        // Roll output buffer
+        /* Roll output buffer */
         roll_left(nr_data.out_buf, NR_HOP, NR_NFFT);
         arm_fill_f32(0.0f, nr_data.out_buf + NR_NFFT - NR_HOP, NR_HOP);
     }
-    return 0;
 }
 
 inline void roll_left(float *pSrc, size_t steps, size_t srcSize)
