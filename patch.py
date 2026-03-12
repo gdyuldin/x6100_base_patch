@@ -69,15 +69,16 @@ patchsets = {
         'noise_reduction': 0x08024d70,
         'copy_flow': 0x08033c88,
         'process_i2c_cmd': 0x0802c1a0,
+        'skip_am_mult': 0x08024d20,
         'build_time': 0x0803cebc,
         'external_fn': {
             'setup_biquad_filter': 0x08021764,
-            # 'arm_fill_f32': 0x08034a90,
+            'arm_fill_f32': 0x08034a90,
             'arm_biquad_cascade_df1_f32': 0x08036024,
             'print_str': 0x080378ac,
             'arm_sqrt_f32': 0x0803c0d4,
-            # 'arm_copy_f32': 0x08034acc,
-            # 'arm_fir_decimate_f32': 0x08035cac,
+            'arm_copy_f32': 0x08034acc,
+            'arm_fir_decimate_f32': 0x08035cac,
             'arm_sin_f32': 0x08036394,
             'arm_cos_f32': 0x0803641c,
         },
@@ -143,7 +144,8 @@ def compile_patch_helper(asm, o_file, date):
 def link_patch_helper(o_file, target, start_offset, **sections):
     cmd = f"arm-none-eabi-ld -Ttext={hex(start_offset)}"
     for sec_name, sec_addr in sections.items():
-        cmd += f" --section-start .{sec_name}={hex(sec_addr)} "
+        if sec_addr is not None:
+            cmd += f" --section-start .{sec_name}={hex(sec_addr)} "
     cmd += f"-o {target} {o_file}"
     print("Call:", cmd)
     ld_cmd = shlex.split(cmd)
@@ -205,25 +207,28 @@ def align(addr, val=4):
 
 
 def print_used_registers(fn_name="compress"):
-    output = subprocess.check_output(shlex.split('arm-none-eabi-objdump -S -z build/Release/x6100_mcu.elf'))
+    output = subprocess.check_output(shlex.split(f'arm-none-eabi-objdump -S -z --disassemble={fn_name} build/Release/x6100_mcu.elf'))
     collect = False
-    line_counter = -1
     registers = {}
-    pushed_registers = []
+    pushed_registers = set()
     for line in output.splitlines():
         line = line.decode()
+        if line.startswith("Disassembly of section"):
+            continue
+        if not line.strip():
+            continue
+
         if line.endswith(f'<{fn_name}>:'):
             collect = True
             continue
         if not collect:
             continue
-        if not line.strip():
-            break
+
         if "\t.word\t" in line:
             continue
         if "\t.short\t" in line:
             continue
-        line_counter += 1
+
         parts = line.split("\t")
         if parts[2] == "bl":
             print("!!!bl call:", line)
@@ -240,10 +245,10 @@ def print_used_registers(fn_name="compress"):
             continue
         if first_arg.startswith('APSR_'):
             continue
-        cmd_args = [x.strip("{}[] ") for x in cmd_args]
+        cmd_args = [x.strip("!{}[] ") for x in cmd_args]
         first_arg = cmd_args[0]
-        if line_counter == 0 and cmd == "push":
-            pushed_registers = cmd_args
+        if cmd == "push":
+            pushed_registers |= set(cmd_args) - registers.keys()
         if first_arg not in registers:
             registers[first_arg] = line
     registers = sorted(registers.items(), key=lambda x: x[0])
@@ -253,17 +258,12 @@ def print_used_registers(fn_name="compress"):
 
 
 class InjectFunction:
-    def __init__(self, name, inject_addr, copy_replaced=False, return_addr=None):
+    def __init__(self, name, inject_addr):
         self.name = name
         self.inject_addr = inject_addr
-        self.copy_replaced = copy_replaced
         self.start_addr, self.end_addr = get_block_start_end(name)
         self.wrapper_len = 0
         self.insert_code = b""
-        if return_addr is None:
-            self.return_addr = inject_addr + 4
-        else:
-            self.return_addr = return_addr
 
     def setup_wrapper_len(self, asm_o_file):
         self.wrapper_len = align(len(get_patched_section(asm_o_file, f".{self.name}_wrapper")))
@@ -271,6 +271,26 @@ class InjectFunction:
     def print_used_registers(self):
         print(f"Registers for {self.name}")
         print_used_registers(fn_name=self.name)
+
+    def setup_insert_code(self, asm_elf):
+        self.insert_code = get_patched_section(asm_elf, f".insert_to_{self.name}")
+        assert len(self.insert_code) == 4, f"{self.name} insert is not 4 bytes"
+
+
+class InjectAsm(InjectFunction):
+    def __init__(self, name, inject_addr):
+        self.name = name
+        self.inject_addr = inject_addr
+        self.insert_code = b""
+        self.start_addr = None
+        self.wrapper_len = 0
+        self.end_addr = 0
+
+    def setup_wrapper_len(self, asm_o_file):
+        pass
+
+    def print_used_registers(self):
+        pass
 
     def setup_insert_code(self, asm_elf):
         self.insert_code = get_patched_section(asm_elf, f".insert_to_{self.name}")
@@ -289,11 +309,11 @@ class InjectFunctions:
         for fn in self.functions:
             fn.setup_wrapper_len(asm_o_file)
             fn.print_used_registers()
-            self.sections.update({
-                f"insert_to_{fn.name}": fn.inject_addr,
-                f"{fn.name}_wrapper": orig_fw_size + flash_offset + accumulated_size,
-                fn.name: fn.start_addr,
-            })
+            self.sections[f"insert_to_{fn.name}"] = fn.inject_addr
+            if fn.wrapper_len:
+                self.sections[f"{fn.name}_wrapper"] = orig_fw_size + flash_offset + accumulated_size
+            if fn.start_addr is not None:
+                self.sections[fn.name] = fn.start_addr
             accumulated_size += fn.wrapper_len
             self.new_code_end = max(self.new_code_end, fn.end_addr)
 
@@ -321,6 +341,8 @@ class InjectFunctions:
 
     def copy_wrappers(self, asm_elf, dst: bytearray):
         for fn in self.functions:
+            if fn.wrapper_len == 0:
+                continue
             sec_name = f"{fn.name}_wrapper"
             start = self.sections[sec_name] - self.flash_offset
             code = get_patched_section(asm_elf, f".{sec_name}")
@@ -330,18 +352,9 @@ class InjectFunctions:
     def insert_jumps(self, dst: bytearray):
         for fn in self.functions:
             from_sec_name = f"insert_to_{fn.name}"
-            to_sec_name = f"{fn.name}_wrapper"
             from_offset = self.sections[from_sec_name] - self.flash_offset
-            to_offset = self.sections[to_sec_name] - self.flash_offset
-
             # Copy instructions
-            if fn.copy_replaced:
-                dst[to_offset: to_offset + 4] = dst[from_offset: from_offset + 4]
             dst[from_offset: from_offset + 4] = fn.insert_code
-
-            # fill gap with nop
-            gap = b"bf00" * ((fn.return_addr - fn.inject_addr - 4) // 2)
-            dst[from_offset + 4: from_offset + 4 + len(gap)] = gap
 
 
 def update_filters(dst: bytearray, flash_offset, addr, path, numTaps):
@@ -397,7 +410,6 @@ def main():
         InjectFunction("am_modulation", patchset["am_modulation"]),  # soft limit AM signal and modulate
         InjectFunction("fm_modulate", patchset["fm_modulate"]),  # fm modulation prepare
         InjectFunction("tx_amp", patchset["tx_amp"]),  # amp IQ according to configured TX power
-
         InjectFunction("tx_coeff_calc", patchset["tx_coeff_calc"]),  # update coefficients for IQ on TX power change
         InjectFunction("fm_demodulate", patchset["fm_demodulate"]),  # Demodulate FM
         InjectFunction("am_fm_rx_process", patchset["am_fm_rx_process"]),  # process AM/FM rx (sql, dc blocker)
@@ -405,6 +417,7 @@ def main():
         InjectFunction("nr_apply", patchset["noise_reduction"]),  # noise reduction
         InjectFunction("copy_flow", patchset["copy_flow"]),  # copy data samples to flow with changes
         InjectFunction("process_i2c_cmd", patchset["process_i2c_cmd"]),  # handle i2c commands
+        InjectAsm("skip_am_mult", patchset["skip_am_mult"]),
     ], asm_o_file=o_file, flash_offset=flash_offset, orig_fw_size=len(orig_code), rodata_start=rodata_start, rodata_end=rodata_end)
 
     elf = "asm/helper.elf"

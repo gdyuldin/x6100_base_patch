@@ -63,9 +63,9 @@ _jump_to_dma_end_wrapper:
 _dma_end_wrapper:
 
   // save func registers
-  push {r0-r2, ip}
+  push {r0-r2}
   bl _dma_end
-  pop {r0-r2, ip}
+  pop {r0-r2}
 
   mov.w   r2,#0x400  // from original
 
@@ -540,3 +540,12 @@ _nr_apply_wrapper:
 .section .nr_apply, "ax"
 _nr_apply:
   nop
+
+
+/*
+Skip AM demod multiplication
+*/
+
+.section .insert_to_skip_am_mult, "ax"
+_skip_am_mult_wrapper:
+  b 0x08024d2c

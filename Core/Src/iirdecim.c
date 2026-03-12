@@ -59,8 +59,8 @@ static void iir_decim_iq(iq_iir_filter_t flt, float *pSrc, float *pDst, uint32_t
             srcI[i+1] = *pSrc++;
             srcQ[i+1] = *pSrc++;
         }
-        arm_biquad_cascade_df1_f32(&flt[0].S, srcI, dstI, BLOCK_SIZE);
-        arm_biquad_cascade_df1_f32(&flt[1].S, srcQ, dstQ, BLOCK_SIZE);
+        ext_arm_biquad_cascade_df1_f32(&flt[0].S, srcI, dstI, BLOCK_SIZE);
+        ext_arm_biquad_cascade_df1_f32(&flt[1].S, srcQ, dstQ, BLOCK_SIZE);
         for (uint8_t i = 0; i < BLOCK_SIZE; i+=N)
         {
             *pDst++ = dstI[i];
@@ -91,9 +91,9 @@ void iirdecim_reset()
 {
     for (uint8_t j = 0; j < 2; j++)
     {
-        arm_fill_f32(0.0f, filter_2[j].state, ARRAY_SIZE(filter_2[j].state));
-        arm_fill_f32(0.0f, filter_4[j].state, ARRAY_SIZE(filter_4[j].state));
-        arm_fill_f32(0.0f, filter_8[j].state, ARRAY_SIZE(filter_8[j].state));
+        ext_arm_fill_f32(0.0f, filter_2[j].state, ARRAY_SIZE(filter_2[j].state));
+        ext_arm_fill_f32(0.0f, filter_4[j].state, ARRAY_SIZE(filter_4[j].state));
+        ext_arm_fill_f32(0.0f, filter_8[j].state, ARRAY_SIZE(filter_8[j].state));
     }
 }
 
@@ -112,7 +112,7 @@ void iir_decim_iq_n(uint8_t N, float *pSrc, float *pDst, uint32_t countSrc) {
 
     default:
         if (pSrc != pDst) {
-            arm_copy_f32(pSrc, pDst, countSrc << 1);
+            ext_arm_copy_f32(pSrc, pDst, countSrc << 1);
         }
         break;
     }

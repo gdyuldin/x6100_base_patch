@@ -38,7 +38,7 @@ if(NOT TARGET_BUILD_DATE)
     set(TARGET_BUILD_DATE 221112001)
 endif()
 
-add_compile_definitions("BUILD_DATE=${TARGET_BUILD_DATE}")
+add_compile_definitions("BUILD_DATE=${TARGET_BUILD_DATE}" ARM_MATH_LOOPUNROLL)
 
 # Create an executable object type
 add_executable(${CMAKE_PROJECT_NAME})

@@ -223,11 +223,11 @@ typedef struct {
 
     /* General data */
     struct {
-        enum mod_t modulation;
+        enum mod_t mode;
         uint32_t att;
         uint32_t pre;
+        uint8_t tx;
     } prev_state;
-    uint8_t tx_flag;
     bool swr_scan;
     uint8_t band_id;
 
@@ -411,6 +411,8 @@ static inline void update_tx_filter_params(uint16_t low, uint16_t high) {
 }
 
 inline static void fast_iq_offset_counter_setup() {
+    USE_OEM_TX_FLAG_AS(pTx);
+
     int32_t *input_data = *(int32_t **)INPUT_RF_SIGNAL_INT_ADDR;
     uint32_t samples_count = *(uint32_t*)SAMPLES_COUNT_VALUE;
 
@@ -418,9 +420,9 @@ inline static void fast_iq_offset_counter_setup() {
     if (data->rx_iq_corr.step <= 800) {
         data->rx_iq_corr.step++;
     }
-    if (*tx_flag != data->rx_iq_corr.last_tx) {
-        data->rx_iq_corr.last_tx = *tx_flag;
-        if (!*tx_flag) {
+    if (*pTx != data->rx_iq_corr.last_tx) {
+        data->rx_iq_corr.last_tx = *pTx;
+        if (!*pTx) {
             data->rx_iq_corr.step = 0;
             data->rx_iq_corr.state = RX_TX_STATE_MUTE;
         }
@@ -565,7 +567,7 @@ uint32_t copy_flow(float *p_Dst) {
     // }
     // TIM2->SR
     if (data->flow.data + (data->flow.desired_samples * data->flow.sample_size) <= data->flow.write_p) {
-        arm_copy_f32((float *)data->flow.read_p, p_Dst, (*flow_n_samples) << 1);
+        ext_arm_copy_f32((float *)data->flow.read_p, p_Dst, (*flow_n_samples) << 1);
         uint32_t copied_bytes = (*flow_n_samples * 8);
         data->flow_info.flow_seq_n = (data->flow.read_p - data->flow.data) / copied_bytes;
         avg_freq = data->flow.avg_freq.sum / data->flow.avg_freq.cnt;
@@ -630,14 +632,14 @@ static void flow_collecting_at_end(void) {
 }
 
 static void fm_demod_init(void) {
-    arm_fill_f32(0.0f, (float *)data->fm_demod.iq_history, sizeof(data->fm_demod.iq_history) / 4);
+    ext_arm_fill_f32(0.0f, (float *)data->fm_demod.iq_history, sizeof(data->fm_demod.iq_history) / 4);
     data->fm_demod.avg_k = 0.0f;
     data->fm_demod.hpf_env = 0.0f;
 
     data->fm_demod.iir_snr_detector.numStages = 1;
     data->fm_demod.iir_snr_detector.pCoeffs = data->fm_demod.iir_snr_detector_coeffs;
     data->fm_demod.iir_snr_detector.pState = data->fm_demod.iir_snr_detector_state;
-    arm_fill_f32(0.0f, data->fm_demod.iir_snr_detector_state, sizeof(data->fm_demod.iir_snr_detector_state) / 4);
+    ext_arm_fill_f32(0.0f, data->fm_demod.iir_snr_detector_state, sizeof(data->fm_demod.iir_snr_detector_state) / 4);
     data->fm_demod.iir_snr_detector_coeffs[0] = 0.11735104f;
     data->fm_demod.iir_snr_detector_coeffs[1] = -0.23470207f;
     data->fm_demod.iir_snr_detector_coeffs[2] = 0.11735104f;
@@ -648,7 +650,7 @@ static void fm_demod_init(void) {
     data->fm_demod.deemp_filter.numStages = 1;
     data->fm_demod.deemp_filter.pCoeffs = data->fm_demod.deemp_filter_coeffs;
     data->fm_demod.deemp_filter.pState = data->fm_demod.deemp_filter_state;
-    arm_fill_f32(0.0f, data->fm_demod.deemp_filter_state, sizeof(data->fm_demod.deemp_filter_state) / 4);
+    ext_arm_fill_f32(0.0f, data->fm_demod.deemp_filter_state, sizeof(data->fm_demod.deemp_filter_state) / 4);
     data->fm_demod.deemp_filter_coeffs[0] = 1.0f;
     data->fm_demod.deemp_filter_coeffs[1] = 0.4133537804899683f;
     data->fm_demod.deemp_filter_coeffs[2] = 0.0f;
@@ -659,7 +661,7 @@ static void fm_demod_init(void) {
     data->fm_demod.preemp_filter.numStages = 1;
     data->fm_demod.preemp_filter.pCoeffs = data->fm_demod.preemp_filter_coeffs;
     data->fm_demod.preemp_filter.pState = data->fm_demod.preemp_filter_state;
-    arm_fill_f32(0.0f, data->fm_demod.preemp_filter_state, sizeof(data->fm_demod.preemp_filter_state) / 4);
+    ext_arm_fill_f32(0.0f, data->fm_demod.preemp_filter_state, sizeof(data->fm_demod.preemp_filter_state) / 4);
     data->fm_demod.preemp_filter_coeffs[0] = 1.0f;
     data->fm_demod.preemp_filter_coeffs[1] = -0.3441537868654123f;
     data->fm_demod.preemp_filter_coeffs[2] = 0.0f;
@@ -710,6 +712,8 @@ __attribute__((optimize("O1"))) void init_data(void) {
  */
 
 static void reset_filters_states_on_changes() {
+    USE_OEM_MODULATION_AS(pMode);
+
     bool *reset = (bool*)RESET_FILTERS_STATE;
     if (*reset) {
         return;
@@ -747,33 +751,11 @@ static void reset_filters_states_on_changes() {
     uint32_t *att = (uint32_t*)ATT;
     uint32_t *pre = (uint32_t*)PRE;
 
-    struct fbuf {
-        float*  a;
-        uint32_t s;
-    };
-
-
-    struct fbuf interp_bufs[] = {
-        // interp
-        {(float*)FIR_INTERP_8_STATE, 8},
-        {(float*)FIR_INTERP_8_BUF, 8},
-
-        // filters 1-2
-        {(float*)RX_FILTER_1_0_STATE, 0x14},
-        {(float*)RX_FILTER_1_1_STATE, 0x14},
-        {(float*)RX_FILTER_2_0_STATE, 0x14},
-        {(float*)RX_FILTER_2_1_STATE, 0x14},
-
-        // decim_2
-        {(float*)FIR_DECIM_2_BUF, 2},
-        {(float*)FIR_DECIM_2_STATE, 0x25},
-    };
-
     bool clear = false;
     uint32_t *decim2_i = (uint32_t*)FIR_DECIM_2_I;
 
-    if (*modulation != data->prev_state.modulation) {
-        data->prev_state.modulation = *modulation;
+    if (*pMode != data->prev_state.mode) {
+        data->prev_state.mode = *pMode;
         clear = true;
     }
     if (*pre != data->prev_state.pre) {
@@ -786,14 +768,21 @@ static void reset_filters_states_on_changes() {
     }
 
     if (clear) {
-        for (size_t i = 0; i < ARRAY_SIZE(interp_bufs); i++) {
-            arm_fill_f32(0.0f, interp_bufs[i].a, interp_bufs[i].s);
-        }
+        // interp
+        ext_arm_fill_f32(0.0f, (float*)FIR_INTERP_8_STATE, 8);
+        ext_arm_fill_f32(0.0f, (float*)FIR_INTERP_8_BUF, 8);
+
+        // decim_2
+        ext_arm_fill_f32(0.0f, (float*)FIR_DECIM_2_BUF, 2);
+        ext_arm_fill_f32(0.0f, (float*)FIR_DECIM_2_STATE, 0x25);
+
         *decim2_i = 0;
     }
 }
 
 void configure(void) {
+    USE_OEM_TX_FLAG_AS(pTx);
+
     reset_filters_states_on_changes();
 
     // Reset coefficients on SWR scan
@@ -816,9 +805,9 @@ void configure(void) {
     fast_iq_offset_counter_setup();
 
     // Reset ring buffers (for compressor) on RX/TX state change
-    if (data->tx_flag != *tx_flag) {
-        data->tx_flag = *tx_flag;
-        if (data->tx_flag) {
+    if (data->prev_state.tx != *pTx) {
+        data->prev_state.tx = *pTx;
+        if (*pTx) {
             ring_buf_reset(&data->comp.dline);
         }
     }
@@ -976,7 +965,8 @@ __noinline void tx_coeff_calc(float pwr) {
  * Compressor, limiter
  */
 __attribute__((noinline, optimize("O2"))) void compress(float *pval) {
-    switch (*modulation) {
+    USE_OEM_MODULATION_AS(pMode);
+    switch (*pMode) {
         // case MOD_LSB:
         case MOD_LSB_D: // lsb-d
         case MOD_USB_D: // usb-d
@@ -1076,7 +1066,7 @@ float am_modulation(float val, float am_carrier_lvl, float am_level) {
 
 float fm_modulate(float val) {
     if (data->fm_demod.emphasis_on) {
-        arm_biquad_cascade_df1_f32(&data->fm_demod.preemp_filter, &val, &val, 1);
+        ext_arm_biquad_cascade_df1_f32(&data->fm_demod.preemp_filter, &val, &val, 1);
         val *= 2.0f;
     }
     val *= *fm_depth_of_mod;
@@ -1089,8 +1079,9 @@ float fm_modulate(float val) {
  * Amplify TX IQ signal for TX output power
  */
 __attribute__((noinline)) void tx_amp(float *i, float *q) {
+    USE_OEM_MODULATION_AS(pMode);
     float k;
-    switch (*modulation)
+    switch (*pMode)
     {
         case MOD_LSB:
         case MOD_LSB_D:
@@ -1184,7 +1175,7 @@ void fm_demodulate(void *S, cfloat_t *iq_sample, float *out, uint32_t _n_samples
 
     // HPF for signal/noise detection
     float out_high;
-    arm_biquad_cascade_df1_f32(&data->fm_demod.iir_snr_detector, &output, &out_high, 1);
+    ext_arm_biquad_cascade_df1_f32(&data->fm_demod.iir_snr_detector, &output, &out_high, 1);
     out_high *= out_high;
     data->fm_demod.hpf_env += (out_high - data->fm_demod.hpf_env) * 0.001f;
 
@@ -1221,7 +1212,7 @@ void fm_demodulate(void *S, cfloat_t *iq_sample, float *out, uint32_t _n_samples
 
     if (data->fm_demod.emphasis_on) {
         // De-emphasis
-        arm_biquad_cascade_df1_f32(&data->fm_demod.deemp_filter, &output, out, 1);
+        ext_arm_biquad_cascade_df1_f32(&data->fm_demod.deemp_filter, &output, out, 1);
     } else {
         *out = output * 2.5f;
     }
@@ -1231,10 +1222,12 @@ void fm_demodulate(void *S, cfloat_t *iq_sample, float *out, uint32_t _n_samples
  * Process AM/FM rx signal after demodulation
  */
 void am_fm_rx_process() {
+    USE_OEM_MODULATION_AS(pMode);
+
     float *demod = (float*) AM_FM_DEMOD;
 
     float val = *demod;
-    switch (*modulation)
+    switch (*pMode)
     {
         case MOD_AM:
             // remove DC offset
