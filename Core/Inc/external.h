@@ -15,7 +15,12 @@
 
 #define USE_OEM_MODULATION_AS(x) uint8_t* x = (uint8_t *)MODULATION_ADDR
 #define USE_OEM_TX_FLAG_AS(x) volatile uint8_t* x = (uint8_t *)TX_FLAG_VALUE
+#define USE_OEM_SQL_AS(x) volatile uint8_t* x = (uint8_t *)SQL_VALUE
+#define USE_OEM_FM_DEPTH_OF_MOD_AS(x) volatile float* x = (float *)FM_DEPTH_OF_MOD_VALUE
+#define USE_OEM_FREQ_PLUS_RIT_AS(x) volatile uint32_t* x = (uint32_t *)FREQ_PLUS_RIT
 
+// I2C registers values start pointer
+#define USE_OEM_I2C_REGS_AS(x) volatile uint32_t* x = (uint32_t *)I2C_REGS_ADDR
 
 enum __attribute__((__packed__)) mod_t {
     MOD_LSB,

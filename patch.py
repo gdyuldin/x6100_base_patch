@@ -206,11 +206,10 @@ def align(addr, val=4):
     return int(np.ceil(addr / val) * val)
 
 
-def print_used_registers(fn_name="compress"):
+def get_fn_registers(fn_name, pushed_registers):
     output = subprocess.check_output(shlex.split(f'arm-none-eabi-objdump -S -z --disassemble={fn_name} build/Release/x6100_mcu.elf'))
     collect = False
     registers = {}
-    pushed_registers = set()
     for line in output.splitlines():
         line = line.decode()
         if line.startswith("Disassembly of section"):
@@ -230,12 +229,15 @@ def print_used_registers(fn_name="compress"):
             continue
 
         parts = line.split("\t")
-        if parts[2] == "bl":
+        if parts[2] == "bl" or parts[2] == "b.w":
             print("!!!bl call:", line)
+            sub_fn_name = parts[3].split()[1].strip('<>')
+            sub_registers, sub_pushed_registers = get_fn_registers(sub_fn_name, pushed_registers)
+            registers.update({k: f"{sub_fn_name} {v}" for k, v in sub_registers.items() if k not in sub_pushed_registers})
             continue
         if len(parts) < 4:
             continue
-        if parts[2] == 'it':
+        if parts[2] == 'it' or parts[2] == "itt":
             continue
         cmd = parts[2]
         cmd_args = parts[3]
@@ -251,6 +253,12 @@ def print_used_registers(fn_name="compress"):
             pushed_registers |= set(cmd_args) - registers.keys()
         if first_arg not in registers:
             registers[first_arg] = line
+    return registers, pushed_registers
+
+
+def print_used_registers(fn_name="compress"):
+    pushed_registers = set()
+    registers, pushed_registers = get_fn_registers(fn_name, pushed_registers)
     registers = sorted(registers.items(), key=lambda x: x[0])
     for k, l in registers:
         saved = k in pushed_registers

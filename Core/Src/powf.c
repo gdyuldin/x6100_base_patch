@@ -27,6 +27,8 @@ Peak Error:	~0.0010%
 RMS  Error: ~0.0002%
 */
 
+#include "powf.h"
+
 
 const float __powf_rng[2] = {
 	1.442695041f,
@@ -108,7 +110,7 @@ float powf_c(float x, float n)
 }
 
 
-inline __attribute__((always_inline)) float powf10_c(float n)
+float powf10_c(float n)
 {
 	float a, b, c, d, xx;
 	int m;

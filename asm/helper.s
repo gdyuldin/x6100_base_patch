@@ -36,11 +36,11 @@ _configure_wrapper:
   bl GET_DMA_CR_REGISTER_VALUE    // call get_dma_cr_register_value
 
   vpush {s0}
-  vpush {s14-s16}
-  push {r0-r3, ip}
+  vpush {s6-s17}
+  push {r0-r2, ip}
   bl _configure
-  pop {r0-r3, ip}
-  vpop {s14-s16}
+  pop {r0-r2, ip}
+  vpop {s6-s17}
   vpop {s0}
 
   b _jump_to_configure_wrapper + 4
@@ -63,9 +63,13 @@ _jump_to_dma_end_wrapper:
 _dma_end_wrapper:
 
   // save func registers
-  push {r0-r2}
+  vpush {s0}
+  vpush {s14-s16}
+  push {r0-r2, r8-r9, fp, sl}
   bl _dma_end
-  pop {r0-r2}
+  pop {r0-r2, r8-r9, fp, sl}
+  vpop {s14-s16}
+  vpop {s0}
 
   mov.w   r2,#0x400  // from original
 
@@ -91,7 +95,7 @@ _jump_to_apply_rx_iq_offset_wrapper:
 _apply_rx_iq_offset_wrapper:
 
   // save func registers
-  push {r1-r3, lr}
+  push {r1-r3}
   vpush {s11-s15}
 
   // push arguments, call func, pop arguments
@@ -102,7 +106,7 @@ _apply_rx_iq_offset_wrapper:
   vpop {RX_Q_REGISTER}
 
   vpop {s11-s15}
-  pop {r1-r3, lr}
+  pop {r1-r3}
 
   vmul.f32 RX_Q_REGISTER,RX_Q_REGISTER,s15  // from original
 
@@ -170,11 +174,11 @@ _am_modulation_wrapper:
     vmov.f32 s1, s14
     vmov.f32 s2, s13
 
-    vpush {s12-s15}
+    vpush {s13-s16}
 
     bl _am_modulation
 
-    vpop {s12-s15}
+    vpop {s13-s16}
 
     vmov.f32 s14, s0
 
@@ -293,11 +297,11 @@ _jump_to_tx_coeff_calc_wrapper:
 .section .tx_coeff_calc_wrapper, "ax"
 _tx_coeff_calc_wrapper:
   vstr.32 s0, [r2]  // from original code
-  push {r0-r4, lr}
-  vpush {s0-s16}
+  push {r0-r3, lr}
+  vpush {s0-s17}
   bl _tx_coeff_calc
-  vpop {s0-s16}
-  pop {r0-r4, lr}
+  vpop {s0-s17}
+  pop {r0-r3, lr}
   b _jump_to_tx_coeff_calc_wrapper + 4
 
 .section .tx_coeff_calc, "ax"
@@ -351,13 +355,15 @@ _jump_to_am_fm_rx_process_wrapper:
 .section .am_fm_rx_process_wrapper, "ax"
 _am_fm_rx_process_wrapper:
   // save registers, load_data
-  vpush {s12-s15}
-  push {r2-r3}
+  vpush {s0-s1}
+  vpush {s13-s15}
+  push {r0, r2}
 
   bl _am_fm_rx_process
 
-  pop {r2-r3}
-  vpop {s12-s15}
+  pop {r0, r2}
+  vpop {s13-s15}
+  vpop {s0-s1}
 
   // load processed demodulated value
   push {r3}
@@ -440,10 +446,10 @@ _process_i2c_cmd_wrapper:
   bl GET_BATTERY_DATA_MAYBE     //call get_battery_data_maybe
   push {r0-r3, ip, lr}
   vpush {s0-s2}
-  vpush {s8-s15}
+  vpush {s11-s17}
   bl _process_i2c_cmd
   vpop {s0-s2}
-  vpop {s8-s15}
+  vpop {s11-s17}
   pop {r0-r3, ip, lr}
   b _jump_to_process_i2c_cmd_wrapper + 4
 
@@ -465,11 +471,11 @@ _jump_to_if_shift_wrapper:
 
 .section .if_shift_wrapper, "ax"
 _if_shift_wrapper:
-  push {r0-r4, ip, lr}
+  push {r0-r3, ip}
   vpush {s7-s15}
   bl _if_shift
   vpop {s7-s15}
-  pop {r0-r4, ip, lr}
+  pop {r0-r3, ip}
 
   ldrb.w r3, [sp,#0x107]  // Call original code
 
@@ -525,16 +531,14 @@ _jump_to_nr_apply_wrapper:
 .section .nr_apply_wrapper, "ax"
 _nr_apply_wrapper:
 
-  vpush {s0}
-  vpush {s7-s16}
-  push {r1-r3, ip}
+  vpush {s0-s31}
+  push {r0-r3, r7-r9, ip, fp}
   // ldr r0,=DEMOD_AUDIO
   // ADRL R0, DEMOD_AUDIO
   vldr s0, [r0, #-0x4]
   bl _nr_apply
-  pop {r1-r3, ip}
-  vpop {s7-s16}
-  vpop {s0}
+  pop {r0-r3, r7-r9, ip, fp}
+  vpop {s0-s31}
   b 0x08024d88
 
 .section .nr_apply, "ax"

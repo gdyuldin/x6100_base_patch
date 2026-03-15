@@ -3,15 +3,18 @@
 
 #include "stdint.h"
 
-#include "stm32f4xx_hal.h"
+#include "utils.h"
+
 
 // from CMSIS-DSP Include/dsp/filtering_functions.h
 
+void set_adc_dac_gain_offsets(float adc_dac_gain_offset, float dac_gain_offset);
+void set_pwr(float pwr);
 
-typedef struct {
-    float real;
-    float imag;
-} cfloat_t;
+void set_comp_ratio(float val);
+void set_comp_threshold_offset(float val);
+void set_comp_makeup_offset(float val);
+
 
 extern void compress(float *val);
 extern float am_modulation(float val, float am_carrier_lvl, float am_level);

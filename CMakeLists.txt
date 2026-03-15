@@ -57,6 +57,13 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/compressor.c
     Core/Src/iirdecim.c
     Core/Src/noise_reduction.c
+    Core/Src/ring_buf.c
+    Core/Src/modulations.c
+    Core/Src/utils.c
+    Core/Src/anf.c
+    Core/Src/comm.c
+    Core/Src/if_shift.c
+    Core/Src/powf.c
     # Add user sources here
 )
 
