@@ -20,6 +20,7 @@ static struct {
     arm_biquad_casd_df1_inst_f32 preemp_filter;
     float preemp_filter_coeffs[5];
     float preemp_filter_state[4];
+    // TX phase
     float phase;
 } fm_demod __attribute((section(".ccmram")));
 
@@ -34,14 +35,15 @@ static struct {
 
 
 void fm_demod_init(void) {
-    ext_arm_fill_f32(0.0f, (float *)fm_demod.iq_history, sizeof(fm_demod.iq_history) / 4);
+    memset((void*)&fm_demod, 0, sizeof(fm_demod));
+    memset((void*)&fm_sql, 0, sizeof(fm_sql));
+
     fm_demod.avg_k = 0.0f;
     fm_demod.hpf_env = 0.0f;
 
     fm_demod.iir_snr_detector.numStages = 1;
     fm_demod.iir_snr_detector.pCoeffs = fm_demod.iir_snr_detector_coeffs;
     fm_demod.iir_snr_detector.pState = fm_demod.iir_snr_detector_state;
-    ext_arm_fill_f32(0.0f, fm_demod.iir_snr_detector_state, sizeof(fm_demod.iir_snr_detector_state) / 4);
     fm_demod.iir_snr_detector_coeffs[0] = 0.11735104f;
     fm_demod.iir_snr_detector_coeffs[1] = -0.23470207f;
     fm_demod.iir_snr_detector_coeffs[2] = 0.11735104f;
@@ -52,7 +54,6 @@ void fm_demod_init(void) {
     fm_demod.deemp_filter.numStages = 1;
     fm_demod.deemp_filter.pCoeffs = fm_demod.deemp_filter_coeffs;
     fm_demod.deemp_filter.pState = fm_demod.deemp_filter_state;
-    ext_arm_fill_f32(0.0f, fm_demod.deemp_filter_state, sizeof(fm_demod.deemp_filter_state) / 4);
     fm_demod.deemp_filter_coeffs[0] = 1.0f;
     fm_demod.deemp_filter_coeffs[1] = 0.4133537804899683f;
     fm_demod.deemp_filter_coeffs[2] = 0.0f;
@@ -63,7 +64,6 @@ void fm_demod_init(void) {
     fm_demod.preemp_filter.numStages = 1;
     fm_demod.preemp_filter.pCoeffs = fm_demod.preemp_filter_coeffs;
     fm_demod.preemp_filter.pState = fm_demod.preemp_filter_state;
-    ext_arm_fill_f32(0.0f, fm_demod.preemp_filter_state, sizeof(fm_demod.preemp_filter_state) / 4);
     fm_demod.preemp_filter_coeffs[0] = 1.0f;
     fm_demod.preemp_filter_coeffs[1] = -0.3441537868654123f;
     fm_demod.preemp_filter_coeffs[2] = 0.0f;
@@ -71,6 +71,7 @@ void fm_demod_init(void) {
     fm_demod.preemp_filter_coeffs[4] = 0.0f;
 
     fm_demod.emphasis_on = 1;
+    fm_demod.phase = 0.0f;
 }
 
 

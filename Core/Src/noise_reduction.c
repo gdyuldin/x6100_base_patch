@@ -16,6 +16,9 @@ static void roll_left(float *pSrc, size_t steps, size_t srcSize);
 
 typedef struct
 {
+
+    uint32_t profile_update_delay;
+
     // FFT history
     float fft_hist[NR_NFFT];
 
@@ -111,6 +114,7 @@ int nr_init(void)
     nr.slope = 10;
 
     nr_reset();
+    nr.profile_update_delay = 0;
 
     return 0;
 }
@@ -157,7 +161,6 @@ void nr_setup_filters(void) {
 
 void nr_apply(float sample)
 {
-    USE_OEM_TX_FLAG_AS(pTx);
     USE_OEM_NRE_AS(nre_flag);
     USE_OEM_MODULATION_AS(pMode);
 
@@ -178,11 +181,6 @@ void nr_apply(float sample)
 
         nr.agc_scale_write = nr.agc_scales;
         nr.in_buf_i = 0;
-        // nr.norm_p = nr.norm;
-        return;
-    }
-
-    if (*pTx) {
         return;
     }
 
@@ -239,19 +237,30 @@ void nr_apply(float sample)
         uint32_t n_bins = nr.filter_high_bin - nr.filter_low_bin;
         arm_cmplx_mag_f32(z + 2 + nr.filter_low_bin * 2, mag + nr.filter_low_bin, n_bins);
 
-        /* Compute noise profile */
-#pragma GCC unroll 4
+        #pragma GCC unroll 4
         for (size_t i = nr.filter_low_bin; i < nr.filter_high_bin; i++)
         {
             // Revert AGC
             mag[i] *= agc_k;
-            float diff = mag[i] - nr.profile[i];
-            if (diff > 0) {
-                nr.profile[i] += diff * nr.profile_grow_alpha;
-            } else {
-                nr.profile[i] += diff * nr.profile_fall_alpha;
-            }
         }
+
+        if (nr.profile_update_delay != 0) {
+            nr.profile_update_delay--;
+        } else {
+            /* Compute noise profile */
+#pragma GCC unroll 4
+            for (size_t i = nr.filter_low_bin; i < nr.filter_high_bin; i++)
+            {
+                float diff = mag[i] - nr.profile[i];
+                if (diff > 0) {
+                    nr.profile[i] += diff * nr.profile_grow_alpha;
+                } else {
+                    nr.profile[i] += diff * nr.profile_fall_alpha;
+                }
+            }
+
+        }
+
 
         /* Compute mask */
         float mask[NR_MASK_SIZE];
@@ -316,6 +325,13 @@ void nr_apply(float sample)
         /* Roll output buffer */
         roll_left(nr.out_buf, NR_HOP, NR_NFFT);
         ext_arm_fill_f32(0.0f, nr.out_buf + NR_NFFT - NR_HOP, NR_HOP);
+    }
+}
+
+void nr_set_tx(uint8_t tx)
+{
+    if (tx) {
+        nr.profile_update_delay = 12500 / 64;
     }
 }
 

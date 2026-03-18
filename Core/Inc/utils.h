@@ -1,9 +1,10 @@
 #ifndef __UTILS_H
 #define __UTILS_H
 
-// #include <math.h>
 #include "math/pow.h"
 #include "math/log10.h"
+
+#include <stdint.h>
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(*a))
 
@@ -37,6 +38,8 @@ inline float db2lin(float val) {
 inline float lin2db(float val) {
     return 20.0f * log10f_c(val + 1e-16f);
 }
+
+void fill_zero(uint8_t *data, uint32_t size);
 
 #endif //__UTILS_H
 

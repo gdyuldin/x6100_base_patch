@@ -16,6 +16,13 @@ struct {
  */
 
 
+void anf_init(void) {
+    anf.enabled = false;
+    anf.an = 0.0f;
+    anf.mean_squared = 0.0f;
+}
+
+
 void anf_update(void) {
     arm_biquad_casd_df1_inst_f32 *flt = (arm_biquad_casd_df1_inst_f32 *)ARM_BIQUAD_CASD_DF1_INST_VALUE;
     const float k = 3e-3f;

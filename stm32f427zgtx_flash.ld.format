@@ -85,12 +85,10 @@ SECTIONS
 
     ${EXTERNAL_FUNCTIONS}
 
-    . = ALIGN(4);
-
-    *(.text)           /* .text sections (code) */
-
     /* Set new functions with offset for asm code */
     . = ${END_OEM_FW_OFFSET} - start_text + 64;
+    . = ALIGN(4);
+    *(.text)           /* .text sections (code) */
     . = ALIGN(4);
     *(.text*)          /* .text* sections (code) */
 

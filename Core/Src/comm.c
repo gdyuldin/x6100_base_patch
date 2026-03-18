@@ -101,6 +101,7 @@ static inline void *copy_flow_b16(float *pSrc, void *pDst, size_t n_src_cmplx_sa
 
 void comm_init(void)
 {
+    memset((void*)&flow, 0, sizeof(flow));
     // init fft_dec instances
     iirdecim_init();
 

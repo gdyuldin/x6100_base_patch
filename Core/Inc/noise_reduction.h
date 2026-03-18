@@ -24,4 +24,6 @@ void nr_reset(void);
 void nr_setup_filters(void);
 void nr_apply(float sample);
 
+void nr_set_tx(uint8_t tx);
+
 #endif // __NOISE_REDUCTION_H

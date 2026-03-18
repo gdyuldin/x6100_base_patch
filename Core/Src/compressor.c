@@ -238,14 +238,8 @@ inline static void fast_iq_offset_counter_setup() {
  * Setup data storage. Inject, calls at startup
  */
 __attribute__((optimize("O1"))) void init_data(void) {
-    // uint32_t *area_end = (uint32_t*)0x20030000;
-    // uint32_t *area_start = area_end - sizeof(data_t) / sizeof(uint32_t);
-    uint32_t *area_start = (uint32_t*)data;
-    uint32_t *area_end = (uint32_t*)data + sizeof(data_t) / sizeof(uint32_t);
+    memset((void*)data, 0, sizeof(*data));
 
-    for (;area_start < area_end; area_start++) {
-        *area_start = 0;
-    }
     ring_buf_init(&data->comp.dline, data->comp.dline_data, ARRAY_SIZE(data->comp.dline_data));
     ring_buf_init(&data->comp.squared_acc, data->comp.squared_acc_data, ARRAY_SIZE(data->comp.squared_acc_data));
 
@@ -253,12 +247,16 @@ __attribute__((optimize("O1"))) void init_data(void) {
     set_comp_threshold_offset(0.0f);
     set_comp_makeup_offset(0.0f);
 
+    set_pwr(5.0f);
+
     set_flow_params(x6100_flow_fp32);
 
-    if_shift_init();
 
-    fm_demod_init();
+
+    anf_init();
     comm_init();
+    if_shift_init();
+    fm_demod_init();
 
     // Noise reduction init
     nr_init();
@@ -274,7 +272,7 @@ static void reset_filters_states_on_changes() {
 
     bool *reset = (bool*)RESET_FILTERS_STATE;
     if (*reset) {
-        nr_reset();
+        // nr_reset();
         return;
     }
     // arm_fill_f32(0.0,data.f.i_lpf.pState,0x14);                      0x20009178
@@ -369,6 +367,7 @@ void configure(void) {
         if (*pTx) {
             ring_buf_reset(&data->comp.dline);
         }
+        nr_set_tx(*pTx);
     }
     nr_setup_filters();
 

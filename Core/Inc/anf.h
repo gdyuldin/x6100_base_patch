@@ -3,7 +3,7 @@
 
 #include "stdbool.h"
 
-
+void anf_init(void);
 void set_anf_enable(bool on);
 void anf_update(void);
 
