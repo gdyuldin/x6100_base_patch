@@ -66,7 +66,7 @@ patchsets = {
         'fm_demodulate': 0x08028b56,  # RX
         'am_fm_rx_process': 0x08028b8e,  # RX
         'anf_update': 0x08025bc8,  # RX
-        'noise_reduction': 0x08024d70,
+        'noise_reduction': 0x08024d42,
         'copy_flow': 0x08033c88,
         'process_i2c_cmd': 0x0802c1a0,
         'skip_am_mult': 0x08024d20,
@@ -413,13 +413,16 @@ def main():
         InjectFunction("dma_end", patchset["dma_end"]),  # code for end of the DMA handler
         InjectFunction("apply_rx_iq_offset", patchset["apply_rx_iq_offset"]),  # Convert IQ to float and apply an offsets
         InjectFunction("if_shift", patchset["if_shift"]),  # Apply IF shift
+
         InjectFunction("tx_if_shift", patchset["tx_if_shift"]),  # Handle IF shift on TX
         InjectFunction("compress", patchset["compress"]),  # compress, limit TX signal
         InjectFunction("am_modulation", patchset["am_modulation"]),  # soft limit AM signal and modulate
+
         InjectFunction("fm_modulate", patchset["fm_modulate"]),  # fm modulation prepare
         InjectFunction("tx_amp", patchset["tx_amp"]),  # amp IQ according to configured TX power
         InjectFunction("tx_coeff_calc", patchset["tx_coeff_calc"]),  # update coefficients for IQ on TX power change
         InjectFunction("fm_demodulate", patchset["fm_demodulate"]),  # Demodulate FM
+
         InjectFunction("am_fm_rx_process", patchset["am_fm_rx_process"]),  # process AM/FM rx (sql, dc blocker)
         InjectFunction("anf_update", patchset["anf_update"]),  # update notch filter params
         InjectFunction("nr_apply", patchset["noise_reduction"]),  # noise reduction

@@ -5,6 +5,14 @@
  * Operations with a ring buffer
  */
 
+void ring_buf_init(struct ring_buf *buf, float *data, uint32_t size) {
+    buf->data = data;
+    buf->size = size;
+    buf->r = 0;
+    buf->w = 0;
+}
+
+
 void ring_buf_put(struct ring_buf *buf, float val) {
     buf->data[buf->w] = val;
     if (buf->w == buf->size - 1) {

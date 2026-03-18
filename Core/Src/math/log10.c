@@ -34,6 +34,8 @@ Peak Error:	~0.000040%
 RMS  Error: ~0.000008%
 */
 
+#include "math/log10.h"
+
 const float __log10f_rng =  0.3010299957f;
 
 const float __log10f_lut[8] = {

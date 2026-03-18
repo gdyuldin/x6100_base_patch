@@ -22,7 +22,6 @@
 
 // #define MAX(a, b) (a > b ? a : b)
 // #define MIN(a, b) (a < b ? a : b)
-#define ARRAY_SIZE(a) (sizeof(a) / sizeof(*a))
 
 /**
  * Compressor/gate constants
@@ -172,7 +171,7 @@ inline static void fast_iq_offset_counter_setup() {
     USE_OEM_TX_FLAG_AS(pTx);
 
     int32_t *input_data = *(int32_t **)INPUT_RF_SIGNAL_INT_ADDR;
-    uint32_t samples_count = *(uint32_t*)SAMPLES_COUNT_VALUE;
+    USE_OEM_SAMPLES_COUNT_VALUE_AS(samples_count);
 
     // Increase counter
     if (data->rx_iq_corr.step <= 800) {
@@ -205,7 +204,7 @@ inline static void fast_iq_offset_counter_setup() {
             // searching for min value
             int32_t min_i = (1<<30);
             int32_t min_q = (1<<30);
-            for (size_t i = 0; i < samples_count * 2; i+=2) {
+            for (size_t i = 0; i < *samples_count * 2; i+=2) {
                 int32_t val = ((uint32_t)input_data[i] >> 0x10) | (input_data[i] << 0x10);
                 min_i = MIN(min_i, val);
 
@@ -247,12 +246,12 @@ __attribute__((optimize("O1"))) void init_data(void) {
     for (;area_start < area_end; area_start++) {
         *area_start = 0;
     }
-    data->comp.dline.data = data->comp.dline_data;
-    data->comp.dline.size = sizeof(data->comp.dline_data) / sizeof(*data->comp.dline_data);
-    data->comp.squared_acc.data = data->comp.squared_acc_data;
-    data->comp.squared_acc.size = sizeof(data->comp.squared_acc_data) / sizeof(*data->comp.squared_acc_data);
+    ring_buf_init(&data->comp.dline, data->comp.dline_data, ARRAY_SIZE(data->comp.dline_data));
+    ring_buf_init(&data->comp.squared_acc, data->comp.squared_acc_data, ARRAY_SIZE(data->comp.squared_acc_data));
 
-    data->comp.ratio_comp = 2.0f; // Default value is 2:1
+    set_comp_ratio(2.0f);
+    set_comp_threshold_offset(0.0f);
+    set_comp_makeup_offset(0.0f);
 
     set_flow_params(x6100_flow_fp32);
 
@@ -275,6 +274,7 @@ static void reset_filters_states_on_changes() {
 
     bool *reset = (bool*)RESET_FILTERS_STATE;
     if (*reset) {
+        nr_reset();
         return;
     }
     // arm_fill_f32(0.0,data.f.i_lpf.pState,0x14);                      0x20009178
@@ -456,7 +456,7 @@ void tx_coeff_calc(float pwr) {
         if (pow_scale <= 0.0f) {
             k = 1.0f;
         } else {
-            k = sqrt_f32(pow_scale);
+            k = ext_sqrt_f32(pow_scale);
         }
     } else {
         k = 1.0f;
@@ -559,7 +559,7 @@ void compress(float *pval)
     float rms;
     float squared_mean = data->comp.squared_sum / data->comp.squared_acc.size;
     if (squared_mean >= 0) {
-        rms = sqrt_f32(squared_mean);
+        rms = ext_sqrt_f32(squared_mean);
     } else {
         rms = 0.0f;
     }

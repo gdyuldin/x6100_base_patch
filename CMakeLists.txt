@@ -35,7 +35,7 @@ project(${CMAKE_PROJECT_NAME})
 message("Build type: " ${CMAKE_BUILD_TYPE})
 
 if(NOT TARGET_BUILD_DATE)
-    set(TARGET_BUILD_DATE 221112001)
+    set(TARGET_BUILD_DATE 230307001)
 endif()
 
 add_compile_definitions("BUILD_DATE=${TARGET_BUILD_DATE}" ARM_MATH_LOOPUNROLL)
@@ -63,7 +63,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/anf.c
     Core/Src/comm.c
     Core/Src/if_shift.c
-    Core/Src/powf.c
+    Core/Src/math/pow.c
+    Core/Src/math/log10.c
     # Add user sources here
 )
 

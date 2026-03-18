@@ -2,24 +2,57 @@
 #include "offsets.h"
 #include "external.h"
 
+#include <stdbool.h>
+
 #define ARM_RFFT_INIT_HELPER(n) arm_rfft_fast_init_ ##n## _f32
 #define ARM_RFFT_INIT(x) ARM_RFFT_INIT_HELPER(x)
 
-#define CLIP(x, low, high) ({\
-  __typeof__(x) __x = (x); \
-  __typeof__(low) __low = (low);\
-  __typeof__(high) __high = (high);\
-  __x > __high ? __high : (__x < __low ? __low : __x);\
-})
+#define CLIP(x, low, high) (x > high ? high : (x < low ? low : x))
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(*a))
 #define ABS(x) (x < 0 ? -x: x)
 
+static void roll_left(float *pSrc, size_t steps, size_t srcSize);
 
-static inline void roll_left(float *pSrc, size_t steps, size_t srcSize);
-static inline void lpr_noise_profile(float *mag, size_t len);
+typedef struct
+{
+    // FFT history
+    float fft_hist[NR_NFFT];
 
-nr_data_t nr_data __attribute((section(".ccmram")));
+    // AGC history
+    float agc_scales[NR_NFFT];
+    float *agc_scale_write;
+
+    // input buffer
+    float in_buf[NR_NFFT];
+    uint16_t in_buf_i;
+
+    // FFT
+    arm_rfft_fast_instance_f32 rfft;
+
+    // Noise profile LPF parameters
+    float profile_fall_alpha;
+    float profile_grow_alpha;
+    float profile[NR_MASK_SIZE];
+
+    // Mask
+    float mask_inc_alpha;
+    float mask_dec_alpha;
+    float mask_avg[NR_MASK_SIZE];
+    float slope;
+
+    // Output buffer
+    float out_buf[NR_NFFT];
+
+    // Filters
+    uint32_t filter_low_bin;
+    uint32_t filter_high_bin;
+} nr_data_t;
+
+nr_data_t nr __attribute((section(".ccmram")));
+
+float buf1[NR_NFFT] __attribute((section(".ccmram")));
+float buf2[NR_NFFT] __attribute((section(".ccmram")));
 
 const float window[NR_NFFT] = {
     0.000000e+00f,	1.505907e-04f,	6.022719e-04f,	1.354772e-03f,	2.407637e-03f,	3.760233e-03f,	5.411745e-03f,	7.361179e-03f,
@@ -62,42 +95,35 @@ const float mask_convolve_kernel[] = {
 
 int nr_init(void)
 {
-    ARM_RFFT_INIT(NR_NFFT)(&nr_data.rfft);
-    ARM_RFFT_INIT(NR_NFFT)(&nr_data.rifft);
+    ARM_RFFT_INIT(NR_NFFT)(&nr.rfft);
 
     // self.increase_a = 1 - np.exp(-self.hop / (self.sr * 5))
     // self.decrease_a = 1 - np.exp(-self.hop / (self.sr * 0.5))
     // Time in seconds
-    nr_data.profile_grow_alpha = 1.0f - expf(-(float)NR_HOP / (NR_SAMPLING_RATE * 5.0f));
-    nr_data.profile_fall_alpha = 1.0f - expf(-(float)NR_HOP / (NR_SAMPLING_RATE * 0.1f));
+    nr.profile_grow_alpha = 1.0f - expf(-(float)NR_HOP / (NR_SAMPLING_RATE * 5.0f));
+    nr.profile_fall_alpha = 1.0f - expf(-(float)NR_HOP / (NR_SAMPLING_RATE * 0.1f));
 
     // 1 - np.exp(-self.hop / (self.sr * 0.05))
     // Time in seconds
-    nr_data.mask_avg_alpha = 1.0f - expf(-(float)NR_HOP / (NR_SAMPLING_RATE * 0.05f));
+    nr.mask_inc_alpha = 1.0f - expf(-(float)NR_HOP / (NR_SAMPLING_RATE * 0.01f));
+    nr.mask_dec_alpha = 1.0f - expf(-(float)NR_HOP / (NR_SAMPLING_RATE * 0.05f));
 
-    // Init norm
-    ext_arm_fill_f32(0.0f, nr_data.norm, NR_HOP);
-    for (size_t i = 0; i < NR_NFFT; i++)
-    {
-        nr_data.norm[i % NR_HOP] += window[i] * window[i];
-    }
-    for (size_t i = 0; i < NR_HOP; i++)
-    {
-        nr_data.norm[i] = 1.0f / nr_data.norm[i];
-    }
+    nr.slope = 10;
 
-    nr_data.slope = 10;
-    nr_data.in_buf_i = 0;
-    ext_arm_fill_f32(0.0f, nr_data.out_buf, NR_NFFT);
-    ext_arm_fill_f32(0.0f, nr_data.mask_avg, NR_MASK_SIZE);
-    ext_arm_fill_f32(0.01f, nr_data.profile, NR_MASK_SIZE);
-
-    for (size_t i = 0; i < NR_MASK_SIZE; i++)
-    {
-        nr_data.freq_corr[i] = 1.0f + (float)i / NR_MASK_SIZE;
-    }
+    nr_reset();
 
     return 0;
+}
+
+void nr_reset(void) {
+    nr.in_buf_i = 0;
+    ext_arm_fill_f32(0.0f, nr.fft_hist, NR_NFFT);
+    ext_arm_fill_f32(0.0f, nr.out_buf, NR_NFFT);
+    ext_arm_fill_f32(0.0f, nr.mask_avg, NR_MASK_SIZE);
+    ext_arm_fill_f32(0.01f, nr.profile, NR_MASK_SIZE);
+
+    ext_arm_fill_f32(100.0f, nr.agc_scales, ARRAY_SIZE(nr.agc_scales));
+    nr.agc_scale_write = nr.agc_scales;
 }
 
 void nr_setup_filters(void) {
@@ -124,24 +150,35 @@ void nr_setup_filters(void) {
     int32_t low_bin = low1 * NR_NFFT / NR_SAMPLING_RATE - 2;
     int32_t high_bin = high1 * NR_NFFT / NR_SAMPLING_RATE + 2;
 
-    nr_data.filter_low_bin = MAX(low_bin, 0);
-    nr_data.filter_high_bin = MIN(high_bin, NR_MASK_SIZE - 1);
-    nr_data.filter_high_bin = MAX(nr_data.filter_high_bin, nr_data.filter_low_bin + 2);
+    nr.filter_low_bin = MAX(low_bin, 0);
+    nr.filter_high_bin = MIN(high_bin, NR_MASK_SIZE - 1);
+    nr.filter_high_bin = MAX(nr.filter_high_bin, nr.filter_low_bin + 2);
 }
 
 void nr_apply(float sample)
 {
     USE_OEM_TX_FLAG_AS(pTx);
-    uint8_t *nre_flag = (uint8_t *)NRE_FLAG;
+    USE_OEM_NRE_AS(nre_flag);
+    USE_OEM_MODULATION_AS(pMode);
+
     float *nrthr = (float *)NR_THR_F;
     uint32_t *nr_out_write = (uint32_t *)NR_OUT_WRITE;
     float *nr_out_buf = (float *)NR_OUT_BUF;
 
-    float agc_scale = *(float*)AGC_SCALE;
-    uint8_t agc_on = *(uint8_t*)AGC_ON;
-
+    float *agc_scale = (float*)AGC_SCALE;
+    uint8_t *agc_on = (uint8_t*)AGC_ON;
 
     if (*nre_flag == 0) {
+        uint32_t *nr_out_write = (uint32_t*)0x2000b2e8;
+        uint32_t *nr_out_read = (uint32_t*)0x2000b2e8;
+        uint32_t *nr_buf_in = (uint32_t*)0x2000b2e8;
+        *nr_out_write = 0;
+        *nr_out_read = 0;
+        *nr_buf_in = 0;
+
+        nr.agc_scale_write = nr.agc_scales;
+        nr.in_buf_i = 0;
+        // nr.norm_p = nr.norm;
         return;
     }
 
@@ -149,131 +186,149 @@ void nr_apply(float sample)
         return;
     }
 
-    if (!agc_on) {
-        agc_scale = 1.0f;
+    if (*pMode == MOD_NFM) {
+        // Just copy data without NFM
+        nr_out_buf[*nr_out_write] = sample;
+        *nr_out_write = (*nr_out_write + 1) & 0x1ff;
+        return;
+    }
+
+    if (!*agc_on) {
+        *nr.agc_scale_write++ = 100.0f;
     } else {
-        agc_scale = 1000.0f / agc_scale;
+        *nr.agc_scale_write++ = *agc_scale;
+    }
+    *nr.agc_scale_write++ = 100.0f;
+    if ((nr.agc_scales + ARRAY_SIZE(nr.agc_scales)) <= nr.agc_scale_write) {
+        nr.agc_scale_write = nr.agc_scales;
     }
 
     // Copy data to buf
-    nr_data.in_buf[nr_data.in_buf_i] = sample;
-    nr_data.in_buf_i++;
+    if (isnan(sample)) {
+        sample = 0.0f;
+    } else {
+        sample = CLIP(sample, -2.0f, 2.0f);
+    }
+    nr.in_buf[nr.in_buf_i] = sample;
+    nr.in_buf_i++;
 
-    float buf1[NR_NFFT];
-    float buf2[NR_NFFT];
+    if (nr.in_buf_i >= NR_NFFT) {
 
-    if (nr_data.in_buf_i >= NR_NFFT) {
+        /* Compute AGC k */
+        float agc_k = 0.0f;
+        for (size_t i = 0; i < ARRAY_SIZE(nr.agc_scales); i++)
+        {
+            agc_k += nr.agc_scales[i];
+        }
+
+        agc_k = 100.0f * ARRAY_SIZE(nr.agc_scales) / agc_k;
 
         /* Apply window */
         float *in_chunk = buf1;
-        arm_mult_f32(nr_data.in_buf, window, in_chunk, NR_NFFT);
-        roll_left(nr_data.in_buf, NR_HOP, NR_NFFT);
-        nr_data.in_buf_i = NR_NFFT - NR_HOP;
+        arm_mult_f32(nr.in_buf, window, in_chunk, NR_NFFT);
+        roll_left(nr.in_buf, NR_HOP, NR_NFFT);
+        nr.in_buf_i = NR_NFFT - NR_HOP;
 
         /* FFT */
         float *z = buf2;
-        arm_rfft_fast_f32(&nr_data.rfft, in_chunk, z, 0);
+        arm_rfft_fast_f32(&nr.rfft, in_chunk, z, 0);
 
         /* Compute magnitude (only for filtered fft bins) */
         float mag[NR_MASK_SIZE];
         ext_arm_fill_f32(0.0f, mag, NR_MASK_SIZE);
-        uint32_t n_bins = nr_data.filter_high_bin - nr_data.filter_low_bin;
-        // get mag from low to high
-        arm_cmplx_mag_f32(z + 2 + nr_data.filter_low_bin * 2, mag + nr_data.filter_low_bin, n_bins);
-
+        uint32_t n_bins = nr.filter_high_bin - nr.filter_low_bin;
+        arm_cmplx_mag_f32(z + 2 + nr.filter_low_bin * 2, mag + nr.filter_low_bin, n_bins);
 
         /* Compute noise profile */
-        for (size_t i = nr_data.filter_low_bin; i < nr_data.filter_high_bin; i++)
+#pragma GCC unroll 4
+        for (size_t i = nr.filter_low_bin; i < nr.filter_high_bin; i++)
         {
             // Revert AGC
-            mag[i] *= agc_scale;
-            float diff = mag[i] - nr_data.profile[i];
+            mag[i] *= agc_k;
+            float diff = mag[i] - nr.profile[i];
             if (diff > 0) {
-                nr_data.profile[i] += diff * nr_data.profile_grow_alpha;
+                nr.profile[i] += diff * nr.profile_grow_alpha;
             } else {
-                nr_data.profile[i] += diff * nr_data.profile_fall_alpha;
+                nr.profile[i] += diff * nr.profile_fall_alpha;
             }
         }
 
         /* Compute mask */
         float mask[NR_MASK_SIZE];
         ext_arm_fill_f32(0.0f, mask, NR_MASK_SIZE);
-        float offset = *nrthr / 15.0f + 1.0f;
-        float scale = nr_data.slope / 6;
-        for (size_t i = nr_data.filter_low_bin; i < nr_data.filter_high_bin; i++)
+        float offset = *nrthr / 15.0f + 2.0f;
+        float scale = nr.slope / 6;
+#pragma GCC unroll 4
+        for (size_t i = nr.filter_low_bin; i < nr.filter_high_bin; i++)
         {
             // np.clip((mag / self.thresholds - 1 + 3 - offset) * slope / 6, 0, 1)
-            float val = (mag[i] / nr_data.profile[i] - offset) * scale * nr_data.freq_corr[i];
+            float val = (mag[i] / nr.profile[i] - offset) * scale;
             mask[i] = CLIP(val, 0.03f, 1.0f);
-            nr_data.mask_avg[i] += (mask[i] - nr_data.mask_avg[i]) * nr_data.mask_avg_alpha;
+            float mask_diff = mask[i] - nr.mask_avg[i];
+            if (mask_diff > 0) {
+                nr.mask_avg[i] += mask_diff * nr.mask_inc_alpha;
+            } else {
+                nr.mask_avg[i] += mask_diff * nr.mask_dec_alpha;
+            }
         }
 
         /* Convolve mask */
         float conv_mask[NR_MASK_SIZE + ARRAY_SIZE(mask_convolve_kernel) - 1];
         ext_arm_fill_f32(0.0f, conv_mask, ARRAY_SIZE(conv_mask));
         arm_conv_f32(
-            nr_data.mask_avg + nr_data.filter_low_bin, n_bins,
+            nr.mask_avg + nr.filter_low_bin, n_bins,
             mask_convolve_kernel, ARRAY_SIZE(mask_convolve_kernel),
-            conv_mask + nr_data.filter_low_bin);
+            conv_mask + nr.filter_low_bin);
         float *conv_mask_aligned = conv_mask + (ARRAY_SIZE(mask_convolve_kernel) - 1) / 2;
-
 
         ext_arm_fill_f32(0.0f, buf1, ARRAY_SIZE(buf1));
         float *z_filtered = buf1;
 
+        /* Apply mask */
         arm_cmplx_mult_real_f32(
-            z + 2 + nr_data.filter_low_bin * 2,
-            conv_mask_aligned + nr_data.filter_low_bin,
-            z_filtered + 2 + nr_data.filter_low_bin * 2, n_bins);
+            nr.fft_hist + 2 + nr.filter_low_bin * 2,
+            conv_mask_aligned + nr.filter_low_bin,
+            z_filtered + 2 + nr.filter_low_bin * 2, n_bins);
+
+        /* Copy fft to history */
+        ext_arm_copy_f32(z, nr.fft_hist, NR_NFFT);
 
         /* IFFT */
-        float *out_chunk = buf2;
-        arm_rfft_fast_f32(&nr_data.rifft, z_filtered, out_chunk, 1);
+        float *r_samples = buf2;
+        arm_rfft_fast_f32(&nr.rfft, z_filtered, r_samples, 1);
 
-        /* Window, sum and norm */
-        arm_mult_f32(out_chunk, window, out_chunk, NR_NFFT);
-        arm_add_f32(out_chunk, nr_data.out_buf, nr_data.out_buf, NR_NFFT);
-        arm_mult_f32(nr_data.out_buf, nr_data.norm, nr_data.out_buf, NR_HOP);
+        /* Window and sum */
+#pragma GCC unroll 4
+        for (size_t i = 0; i < NR_NFFT; i++)
+        {
+            nr.out_buf[i] += r_samples[i] * window[i];
+        }
 
         /* Copy output to buf */
         uint32_t write = *nr_out_write;
         for (size_t i = 0; i < NR_HOP; i++)
         {
-            nr_out_buf[write] = nr_data.out_buf[i];
+            nr_out_buf[write] = nr.out_buf[i] * NR_NORM_VAL;
             write = (write + 1) & 0x1ff;
         }
         *nr_out_write = write;
 
         /* Roll output buffer */
-        roll_left(nr_data.out_buf, NR_HOP, NR_NFFT);
-        ext_arm_fill_f32(0.0f, nr_data.out_buf + NR_NFFT - NR_HOP, NR_HOP);
+        roll_left(nr.out_buf, NR_HOP, NR_NFFT);
+        ext_arm_fill_f32(0.0f, nr.out_buf + NR_NFFT - NR_HOP, NR_HOP);
     }
 }
 
-inline void roll_left(float *pSrc, size_t steps, size_t srcSize)
+static void roll_left(float *pSrc, size_t steps, size_t srcSize)
 {
-    float *dst = pSrc + srcSize - steps - 1;
+    float *dst = pSrc;
     float *src = dst + steps;
-    do
+    float *stop = pSrc + srcSize;
+    while (src < stop)
     {
-        *dst-- = *src--;
-        *dst-- = *src--;
-        *dst-- = *src--;
-        *dst-- = *src--;
-    } while (dst > pSrc);
-
-}
-
-inline void lpr_noise_profile(float *mag, size_t len)
-{
-    for (size_t i = 0; i < len; i++)
-    {
-        float diff = mag[i] - nr_data.profile[i];
-        if (diff > 0) {
-            nr_data.profile[i] += diff * nr_data.profile_grow_alpha;
-        } else {
-            nr_data.profile[i] += diff * nr_data.profile_fall_alpha;
-        }
+        *dst++ = *src++;
+        *dst++ = *src++;
+        *dst++ = *src++;
+        *dst++ = *src++;
     }
-
 }

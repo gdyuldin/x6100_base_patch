@@ -33,6 +33,11 @@ void ext_arm_fir_decimate_f32(arm_fir_decimate_instance_f32 *S, float *pSrc, flo
     pDst[blockSize] = pSrc[blockSize] * S->numTaps + S->pCoeffs[blockSize];
 }
 
+__attribute__((optimize("O1")))
+float ext_sqrt_f32(float v) {
+    return v + 0.5f * v;
+}
+
 
 
 void setup_biquad_filter(float sampling_rate,float freq_low,float freq_high,
@@ -41,6 +46,3 @@ void setup_biquad_filter(float sampling_rate,float freq_low,float freq_high,
     *flt_Sf = sampling_rate * freq_low * freq_high * param_5;
 }
 
-float sqrt_f32 (float v) {
-    return sqrtf(v);
-}

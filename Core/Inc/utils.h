@@ -1,9 +1,11 @@
 #ifndef __UTILS_H
 #define __UTILS_H
 
-#define _GNU_SOURCE
-#include <math.h>
-#include "powf.h"
+// #include <math.h>
+#include "math/pow.h"
+#include "math/log10.h"
+
+#define ARRAY_SIZE(a) (sizeof(a) / sizeof(*a))
 
 typedef struct {
     float real;
@@ -29,11 +31,11 @@ float dc_blocker(float val, float k, struct dc_blocker_t *dc);
  */
 
 inline float db2lin(float val) {
-    return powf10_c(val * 0.05f);
+    return pow10f_c(val * 0.05f);
 }
 
 inline float lin2db(float val) {
-    return 20.0f * log10f(val + 1e-16f);
+    return 20.0f * log10f_c(val + 1e-16f);
 }
 
 #endif //__UTILS_H

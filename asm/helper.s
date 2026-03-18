@@ -36,11 +36,11 @@ _configure_wrapper:
   bl GET_DMA_CR_REGISTER_VALUE    // call get_dma_cr_register_value
 
   vpush {s0}
-  vpush {s6-s17}
+  vpush {s6-s15}
   push {r0-r2, ip}
   bl _configure
   pop {r0-r2, ip}
-  vpop {s6-s17}
+  vpop {s6-s15}
   vpop {s0}
 
   b _jump_to_configure_wrapper + 4
@@ -64,11 +64,11 @@ _dma_end_wrapper:
 
   // save func registers
   vpush {s0}
-  vpush {s14-s16}
+  vpush {s14-s15}
   push {r0-r2, r8-r9, fp, sl}
   bl _dma_end
   pop {r0-r2, r8-r9, fp, sl}
-  vpop {s14-s16}
+  vpop {s14-s15}
   vpop {s0}
 
   mov.w   r2,#0x400  // from original
@@ -137,11 +137,11 @@ _compress_wrapper:
     pop {r0}
 
     push {r0-r2, ip}
-    vpush {s0-s16}
+    vpush {s0-s15}
 
     bl _compress
 
-    vpop {s0-s16}
+    vpop {s0-s15}
     pop {r0-r2, ip}
 
     b _jump_to_compress + 4
@@ -174,11 +174,11 @@ _am_modulation_wrapper:
     vmov.f32 s1, s14
     vmov.f32 s2, s13
 
-    vpush {s13-s16}
+    vpush {s13-s15}
 
     bl _am_modulation
 
-    vpop {s13-s16}
+    vpop {s13-s15}
 
     vmov.f32 s14, s0
 
@@ -298,9 +298,9 @@ _jump_to_tx_coeff_calc_wrapper:
 _tx_coeff_calc_wrapper:
   vstr.32 s0, [r2]  // from original code
   push {r0-r3, lr}
-  vpush {s0-s17}
+  vpush {s0-s15}
   bl _tx_coeff_calc
-  vpop {s0-s17}
+  vpop {s0-s15}
   pop {r0-r3, lr}
   b _jump_to_tx_coeff_calc_wrapper + 4
 
@@ -394,11 +394,11 @@ _jump_to_anf_update_wrapper:
 _anf_update_wrapper:
   bl ARM_BIQUAD_CASCADE_DF1_F32     //call arm_biquad_cascade_df1_f32
   // save registers
-  push {r2, r3, lr}
+  push {r2, r3}
   vpush {s10-s15}
   bl _anf_update
   vpop {s10-s15}
-  pop {r2, r3, lr}
+  pop {r2, r3}
   b _jump_to_anf_update_wrapper + 4
 
 .section .anf_update, "ax"
@@ -446,10 +446,10 @@ _process_i2c_cmd_wrapper:
   bl GET_BATTERY_DATA_MAYBE     //call get_battery_data_maybe
   push {r0-r3, ip, lr}
   vpush {s0-s2}
-  vpush {s11-s17}
+  vpush {s11-s15}
   bl _process_i2c_cmd
   vpop {s0-s2}
-  vpop {s11-s17}
+  vpop {s11-s15}
   pop {r0-r3, ip, lr}
   b _jump_to_process_i2c_cmd_wrapper + 4
 
@@ -531,14 +531,24 @@ _jump_to_nr_apply_wrapper:
 .section .nr_apply_wrapper, "ax"
 _nr_apply_wrapper:
 
-  vpush {s0-s31}
+  ldr r0, [sp, #0x10]
+  vpush {s0-s15}
+  push {r1-r3, r7-r9, ip, fp, sl}
+  vldr s0, [r0, #-0x4]
+  bl _nr_apply
+  pop {r1-r3, r7-r9, ip, fp, sl}
+  vpop {s0-s15}
+
+  /*
+  vpush {s0-s15}
   push {r0-r3, r7-r9, ip, fp}
   // ldr r0,=DEMOD_AUDIO
   // ADRL R0, DEMOD_AUDIO
   vldr s0, [r0, #-0x4]
   bl _nr_apply
   pop {r0-r3, r7-r9, ip, fp}
-  vpop {s0-s31}
+  vpop {s0-s15}
+  */
   b 0x08024d88
 
 .section .nr_apply, "ax"

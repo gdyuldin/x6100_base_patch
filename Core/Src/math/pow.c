@@ -27,7 +27,7 @@ Peak Error:	~0.0010%
 RMS  Error: ~0.0002%
 */
 
-#include "powf.h"
+#include "math/pow.h"
 
 
 const float __powf_rng[2] = {
@@ -110,7 +110,7 @@ float powf_c(float x, float n)
 }
 
 
-float powf10_c(float n)
+float pow10f_c(float n)
 {
 	float a, b, c, d, xx;
 	int m;

@@ -49,9 +49,6 @@ static uint32_t *flow_samples_counter = (uint32_t *)FLOW_SAMPLES_COUNTER;  // Co
 static float *flow_samples_cplx = (float *)FLOW_SAMPLES_CPLX;  // Pointer to array of flow samples
 
 
-static void flow_collecting_reset(void);
-
-
 static inline void update_tx_filter_params(uint16_t low, uint16_t high) {
     float rate = *(float *)TX_SAMPLING_RATE_12_5;
     void *flt_S = (void *)BIQUAD_TX_FLT_INST;

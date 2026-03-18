@@ -14,6 +14,7 @@ struct ring_buf {
     uint32_t size;
 };
 
+void ring_buf_init(struct ring_buf *buf, float *data, uint32_t size);
 
 void ring_buf_put(struct ring_buf *buf, float val);
 

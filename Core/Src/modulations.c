@@ -107,7 +107,7 @@ void fm_demodulate(void *S, cfloat_t *iq_sample, float *out, uint32_t _n_samples
         }
     }
 
-    mag = sqrt_f32(mag);
+    mag = ext_sqrt_f32(mag);
 
     if (mag > 0.0f) {
         // save input
@@ -143,7 +143,7 @@ void fm_demodulate(void *S, cfloat_t *iq_sample, float *out, uint32_t _n_samples
     fm_demod.hpf_env += (out_high - fm_demod.hpf_env) * 0.001f;
 
     // Output scaling factor
-    float hpf_rms = sqrt_f32(fm_demod.hpf_env);
+    float hpf_rms = ext_sqrt_f32(fm_demod.hpf_env);
     // float k;
     // Noise lvl ~ 0.07f;
     // Signal lvl ~
