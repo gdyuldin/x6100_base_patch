@@ -7,6 +7,34 @@
   .thumb
 // -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb
 
+
+
+.macro set_r7_stack
+@ Store orig value
+  push {r7}
+  ldr r7, =CCMRAM_STACK_VAL
+.endm
+
+.macro push_c regs:vararg
+  STMDB r7!, \regs
+.endm
+
+.macro pop_c regs:vararg
+  LDMIA r7!, \regs
+.endm
+
+.macro vpush_c regs:vararg
+  VSTMDB r7!, \regs
+.endm
+
+.macro vpop_c regs:vararg
+  VLDMIA r7!, \regs
+.endm
+
+.macro restore_r7_stack
+  pop {r7}
+.endm
+
 .section .text
 .global _start
   nop
@@ -39,6 +67,7 @@ _configure_wrapper:
   vpush {s6-s15}
   push {r0-r2, ip}
   bl _configure
+
   pop {r0-r2, ip}
   vpop {s6-s15}
   vpop {s0}
@@ -114,6 +143,44 @@ _apply_rx_iq_offset_wrapper:
 
 .section .apply_rx_iq_offset, "ax"
 _apply_rx_iq_offset:
+  nop
+
+
+// Remove IQ DC offset before processing
+/*
+   0802492c 41 f8 28 30     str.w   r3,[r1,r8,lsl #offset MEGA_STRUCT.
+   ^ insert here
+   08024930 d4 ed 00 7a     vldr.32 i_val,[r4]=>data
+   08024934 94 ed 01 7a     vldr.32 s14,[r4,#0x4]=>MEGA_STRUCT.iq_data
+
+   int i addr in r4
+   int q addr in r4 + 4
+
+*/
+
+.section .insert_to_remove_iq_offset, "ax"
+_jump_to_remove_iq_offset_wrapper:
+  b _remove_iq_offset_wrapper
+
+.section .remove_iq_offset_wrapper, "ax"
+_remove_iq_offset_wrapper:
+
+  // call original
+  str.w r3, [r1, r8, lsl #0x2]
+
+  // save func registers
+  push {r0-r3, ip}
+
+  // load values
+  mov r0, r4
+  bl _remove_iq_offset
+
+  pop {r0-r3, ip}
+
+  b _jump_to_remove_iq_offset_wrapper + 4
+
+.section .remove_iq_offset, "ax"
+_remove_iq_offset:
   nop
 
 
@@ -235,6 +302,21 @@ _jump_to_init_data:
 
 .section .init_data_wrapper, "ax"
 _init_data_wrapper:
+  @ cpsid i  @ disable IRQ
+  @ ldr r0, =CCMRAM_STACK_MIN
+  @ MSR msplim, r0
+  @ MRS     R0, CONTROL
+  @ BIC     R0, R0, #(1 << 1)  @ clear SPSEL for MSP
+  @ BIC     R0, R0, #(1 << 0)  @ clear nPRIV for privileged thread mode
+  @ MSR     CONTROL, R0
+  @ isb
+
+  @ ldr r0, =CCMRAM_STACK_VAL
+  @ MSR msp, r0
+  @ isb
+  @ cpsie i  @ enable IRQ
+
+
   bl ORIG_INIT_DATA       // from orig code, SystemInit
   bl _init_data
   b _jump_to_init_data + 4

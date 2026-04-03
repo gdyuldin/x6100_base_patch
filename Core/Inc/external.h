@@ -53,15 +53,16 @@ extern float ext_arm_sin_f32(float val)
     __attribute__((noinline, section(".arm_sin_f32_sec")));
 
 extern float ext_arm_cos_f32(float val)
-__attribute__((noinline, section(".arm_cos_f32_sec")));
+    __attribute__((noinline, section(".arm_cos_f32_sec")));
 
 extern float ext_sqrt_f32(float val)
-__attribute__((noinline, section(".arm_sqrt_f32_sec")));
+    __attribute__((noinline, section(".arm_sqrt_f32_sec")));
 
 
-extern void ext_arm_fir_decimate_f32(arm_fir_decimate_instance_f32 *S,float *pSrc,float *pDst,uint32_t blockSize) __attribute__((noinline, section(".arm_fir_decimate_f32_sec")));
+extern void ext_arm_fir_decimate_f32(arm_fir_decimate_instance_f32 *S,float *pSrc,float *pDst,uint32_t blockSize)
+    __attribute__((noinline, section(".arm_fir_decimate_f32_sec")));
 
-extern void setup_biquad_filter(float sampling_rate, float freq_low, float freq_high,
-    void *flt_S, int param_5) __attribute__((noinline, section(".setup_biquad_filter_sec")));
+extern void setup_biquad_filter(float sampling_rate, float freq_low, float freq_high, void *flt_S, int param_5)
+    __attribute__((noinline, section(".setup_biquad_filter_sec")));
 
 #endif // __EXTERNAL_H

@@ -16,6 +16,8 @@ void set_comp_threshold_offset(float val);
 void set_comp_makeup_offset(float val);
 
 
+extern void remove_iq_offset(int32_t *iq);
+
 extern void compress(float *val);
 extern float am_modulation(float val, float am_carrier_lvl, float am_level);
 extern float fm_preemphasis(float val);

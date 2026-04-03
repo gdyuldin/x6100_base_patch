@@ -55,6 +55,7 @@ patchsets = {
         'init_data': 0x08034a66,
         'configure': 0x0802432c,
         'dma_end': 0x08025b72,
+        'remove_iq_offset': 0x0802492c,
         'apply_rx_iq_offset': 0x0802494c,
         'if_shift': 0x08024ac8,
         'tx_if_shift': 0x0802d320,
@@ -393,10 +394,14 @@ def main():
     # value from reset_handler and first 4 bytes from firmware
     # No need to move stack, patch uses CCM RAM
     # stack_p_addr = 0x20030000
-    # stack_p_0 = flash_offset
-    # stack_p_1 = patchset["stack_p_1"]
+    stack_p_0 = flash_offset
+    stack_p_1 = patchset["stack_p_1"]
     # # offset is a len of data struct for injected functions
     # stack_new_p = stack_p_addr - 131112
+
+    # Stack to CCMRAM
+    # stack_new_p = 0x10010000
+    stack_new_p = 0x10010000
 
 
     # arm-none-eabi-objdump -S build/Release/CMakeFiles/test_patch.dir/Core/Src/compressor.c.obj
@@ -411,7 +416,7 @@ def main():
         InjectFunction("init_data", patchset["init_data"]),  # fill ram area with zeros
         InjectFunction("configure", patchset["configure"]),  # configure state at start of DMA handler
         InjectFunction("dma_end", patchset["dma_end"]),  # code for end of the DMA handler
-        InjectFunction("apply_rx_iq_offset", patchset["apply_rx_iq_offset"]),  # Convert IQ to float and apply an offsets
+        InjectFunction("remove_iq_offset", patchset["remove_iq_offset"]),  # Remove IQ offset from incoming data
         InjectFunction("if_shift", patchset["if_shift"]),  # Apply IF shift
 
         InjectFunction("tx_if_shift", patchset["tx_if_shift"]),  # Handle IF shift on TX
@@ -445,16 +450,16 @@ def main():
     # copy rodata
     functions.copy_rodata(patched_code, dst)
 
-    #update stack pointers
-    # for stack_p in (stack_p_0, stack_p_1):
-    #     offset = stack_p - flash_offset
-    #     dst[offset: offset + 4] = np.uint32(stack_new_p).tobytes()
-
     # copy wrappers
     functions.copy_wrappers(elf, dst)
 
     # insert jumps
     functions.insert_jumps(dst)
+
+    # update stack pointers
+    # for stack_p in (stack_p_0, stack_p_1):
+    #     offset = stack_p - flash_offset
+    #     dst[offset: offset + 4] = np.uint32(stack_new_p).tobytes()
 
     # Update filters
     for name, filter_params in patchset["filter_data"].items():

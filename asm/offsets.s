@@ -30,3 +30,6 @@ RX_I_REGISTER .req                s16
 RX_Q_REGISTER .req                s22
 
 .endif
+
+.equ CCMRAM_STACK_VAL,     0x10010000
+.equ CCMRAM_STACK_MIN,     0x10005000

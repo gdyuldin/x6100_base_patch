@@ -28,7 +28,6 @@ struct
     x6100_flow_fmt_t fmt;
     uint8_t fft_dec;
     flow_info_t info;
-    uint8_t collecting_delay;                            // Delay of collecting after changing freq.
     uint8_t data[CFLOAT32_BYTES * FLOW_SEQ_SAMPLES * 2]; // Buffer with max allowed size.
     uint8_t *write_p;
     uint8_t *read_p;
@@ -101,7 +100,25 @@ static inline void *copy_flow_b16(float *pSrc, void *pDst, size_t n_src_cmplx_sa
 
 void comm_init(void)
 {
-    memset((void*)&flow, 0, sizeof(flow));
+    flow.fmt = x6100_flow_fp32;
+    flow.fft_dec = 0;
+
+    flow.info.fft_dec = flow.fft_dec;
+    flow.info.flow_fmt = flow.fmt;
+    flow.info.flow_seq_n = 0xf;
+    flow.info.flow_seq_total = 1;
+    flow.info.lo_freq = 0;
+    flow.info.vary_freq = false;
+    flow.info._pad1 = 0;
+    flow.info._pad2 = 0;
+
+    flow.write_p = flow.data;
+    flow.read_p = flow.data;
+    flow.sample_size = CFLOAT32_BYTES;
+    flow.desired_samples = FLOW_SEQ_SAMPLES;
+    flow.avg_freq.sum = 0;
+    flow.avg_freq.cnt = 0;
+
     // init fft_dec instances
     iirdecim_init();
 

@@ -120,28 +120,9 @@ float pow10f_c(float n)
 		int 	i;
 	} r;
 
-	//extract exponent
-	r.f = 10.0f;
-	m = (r.i >> 23);
-	m = m - 127;
-	r.i = r.i - (m << 23);
-
-	//Taylor Polynomial (Estrins)
-	xx = r.f * r.f;
-	a = (__powf_lut[4] * r.f) + (__powf_lut[0]);
-	b = (__powf_lut[6] * r.f) + (__powf_lut[2]);
-	c = (__powf_lut[5] * r.f) + (__powf_lut[1]);
-	d = (__powf_lut[7] * r.f) + (__powf_lut[3]);
-	a = a + b * xx;
-	c = c + d * xx;
-	xx = xx * xx;
-	r.f = a + c * xx;
-
-	//add exponent
-	r.f = r.f + ((float) m) * __powf_rng[1];
+	r.f = 2.3025850929940455f;
 
 	r.f = r.f * n;
-
 
 	//Range Reduction:
 	m = (int) (r.f * __powf_rng[0]);

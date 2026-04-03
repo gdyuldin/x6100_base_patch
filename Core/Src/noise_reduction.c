@@ -1,11 +1,13 @@
 #include "noise_reduction.h"
 #include "offsets.h"
 #include "external.h"
+#include "utils.h"
 
 #include <stdbool.h>
 
 #define ARM_RFFT_INIT_HELPER(n) arm_rfft_fast_init_ ##n## _f32
 #define ARM_RFFT_INIT(x) ARM_RFFT_INIT_HELPER(x)
+#define CCMRAM __attribute((section(".ccmram")))
 
 #define CLIP(x, low, high) (x > high ? high : (x < low ? low : x))
 
@@ -13,49 +15,6 @@
 #define ABS(x) (x < 0 ? -x: x)
 
 static void roll_left(float *pSrc, size_t steps, size_t srcSize);
-
-typedef struct
-{
-
-    uint32_t profile_update_delay;
-
-    // FFT history
-    float fft_hist[NR_NFFT];
-
-    // AGC history
-    float agc_scales[NR_NFFT];
-    float *agc_scale_write;
-
-    // input buffer
-    float in_buf[NR_NFFT];
-    uint16_t in_buf_i;
-
-    // FFT
-    arm_rfft_fast_instance_f32 rfft;
-
-    // Noise profile LPF parameters
-    float profile_fall_alpha;
-    float profile_grow_alpha;
-    float profile[NR_MASK_SIZE];
-
-    // Mask
-    float mask_inc_alpha;
-    float mask_dec_alpha;
-    float mask_avg[NR_MASK_SIZE];
-    float slope;
-
-    // Output buffer
-    float out_buf[NR_NFFT];
-
-    // Filters
-    uint32_t filter_low_bin;
-    uint32_t filter_high_bin;
-} nr_data_t;
-
-nr_data_t nr __attribute((section(".ccmram")));
-
-float buf1[NR_NFFT] __attribute((section(".ccmram")));
-float buf2[NR_NFFT] __attribute((section(".ccmram")));
 
 const float window[NR_NFFT] = {
     0.000000e+00f,	1.505907e-04f,	6.022719e-04f,	1.354772e-03f,	2.407637e-03f,	3.760233e-03f,	5.411745e-03f,	7.361179e-03f,
@@ -92,9 +51,54 @@ const float window[NR_NFFT] = {
     9.607360e-03f,	7.361179e-03f,	5.411745e-03f,	3.760233e-03f,	2.407637e-03f,	1.354772e-03f,	6.022719e-04f,	1.505907e-04f,
 };
 
-const float mask_convolve_kernel[] = {
+const float gate_convolve_kernel[] = {
     6.250000e-02f,	1.250000e-01f,	1.875000e-01f,	2.500000e-01f,	1.875000e-01f,	1.250000e-01f,	6.250000e-02f,
 };
+
+typedef struct
+{
+
+    uint32_t profile_update_delay;
+
+    // FFT history
+    float fft_hist[NR_NFFT];
+
+    // AGC history
+    float agc_scales[NR_NFFT];
+    float *agc_scale_write;
+
+    // input buffer
+    float in_buf[NR_NFFT];
+    uint16_t in_buf_i;
+
+    // FFT
+    arm_rfft_fast_instance_f32 rfft;
+
+    // Noise profile LPF parameters
+    float profile_fall_alpha;
+    float profile_grow_alpha;
+    float profile[NR_MASK_SIZE];
+
+    // gate gain
+    float gate_gain_inc_alpha;
+    float gate_gain_dec_alpha;
+    float gate_gain[NR_MASK_SIZE];
+    float slope;
+
+    // Output buffer
+    float out_buf[NR_NFFT];
+
+    // Filters
+    uint32_t filter_low_bin;
+    uint32_t filter_high_bin;
+} nr_data_t;
+
+CCMRAM nr_data_t nr;
+
+CCMRAM float buf1[NR_NFFT];
+CCMRAM float buf2[NR_NFFT];
+CCMRAM float mag[NR_MASK_SIZE];
+CCMRAM float gain_db[NR_MASK_SIZE + ARRAY_SIZE(gate_convolve_kernel) - 1];
 
 int nr_init(void)
 {
@@ -108,10 +112,10 @@ int nr_init(void)
 
     // 1 - np.exp(-self.hop / (self.sr * 0.05))
     // Time in seconds
-    nr.mask_inc_alpha = 1.0f - expf(-(float)NR_HOP / (NR_SAMPLING_RATE * 0.01f));
-    nr.mask_dec_alpha = 1.0f - expf(-(float)NR_HOP / (NR_SAMPLING_RATE * 0.05f));
+    nr.gate_gain_inc_alpha = 1.0f - expf(-(float)NR_HOP / (NR_SAMPLING_RATE * 0.01f));
+    nr.gate_gain_dec_alpha = 1.0f - expf(-(float)NR_HOP / (NR_SAMPLING_RATE * 0.05f));
 
-    nr.slope = 10;
+    nr.slope = 6;
 
     nr_reset();
     nr.profile_update_delay = 0;
@@ -123,8 +127,8 @@ void nr_reset(void) {
     nr.in_buf_i = 0;
     ext_arm_fill_f32(0.0f, nr.fft_hist, NR_NFFT);
     ext_arm_fill_f32(0.0f, nr.out_buf, NR_NFFT);
-    ext_arm_fill_f32(0.0f, nr.mask_avg, NR_MASK_SIZE);
-    ext_arm_fill_f32(0.01f, nr.profile, NR_MASK_SIZE);
+    ext_arm_fill_f32(0.0f, nr.gate_gain, NR_MASK_SIZE);
+    ext_arm_fill_f32(-40.0f, nr.profile, NR_MASK_SIZE);
 
     ext_arm_fill_f32(100.0f, nr.agc_scales, ARRAY_SIZE(nr.agc_scales));
     nr.agc_scale_write = nr.agc_scales;
@@ -232,7 +236,6 @@ void nr_apply(float sample)
         arm_rfft_fast_f32(&nr.rfft, in_chunk, z, 0);
 
         /* Compute magnitude (only for filtered fft bins) */
-        float mag[NR_MASK_SIZE];
         ext_arm_fill_f32(0.0f, mag, NR_MASK_SIZE);
         uint32_t n_bins = nr.filter_high_bin - nr.filter_low_bin;
         arm_cmplx_mag_f32(z + 2 + nr.filter_low_bin * 2, mag + nr.filter_low_bin, n_bins);
@@ -240,8 +243,8 @@ void nr_apply(float sample)
         #pragma GCC unroll 4
         for (size_t i = nr.filter_low_bin; i < nr.filter_high_bin; i++)
         {
-            // Revert AGC
-            mag[i] *= agc_k;
+            // Revert AGC, convert to db
+            mag[i] = lin2db(mag[i] * agc_k);
         }
 
         if (nr.profile_update_delay != 0) {
@@ -258,45 +261,44 @@ void nr_apply(float sample)
                     nr.profile[i] += diff * nr.profile_fall_alpha;
                 }
             }
-
         }
 
-
-        /* Compute mask */
-        float mask[NR_MASK_SIZE];
-        ext_arm_fill_f32(0.0f, mask, NR_MASK_SIZE);
-        float offset = *nrthr / 15.0f + 2.0f;
-        float scale = nr.slope / 6;
-#pragma GCC unroll 4
+        /* Compute SNR */
+        float th = *nrthr / 4.0f + 9.0f;
         for (size_t i = nr.filter_low_bin; i < nr.filter_high_bin; i++)
         {
-            // np.clip((mag / self.thresholds - 1 + 3 - offset) * slope / 6, 0, 1)
-            float val = (mag[i] / nr.profile[i] - offset) * scale;
-            mask[i] = CLIP(val, 0.03f, 1.0f);
-            float mask_diff = mask[i] - nr.mask_avg[i];
-            if (mask_diff > 0) {
-                nr.mask_avg[i] += mask_diff * nr.mask_inc_alpha;
+            float snr = mag[i] - nr.profile[i];
+            snr = (snr - th) * nr.slope;
+            snr = CLIP(snr, -40.0f, 0.0f);
+            float diff = snr - nr.gate_gain[i];
+            if (diff > 0) {
+                // Attack
+                nr.gate_gain[i] += diff * nr.gate_gain_inc_alpha;
             } else {
-                nr.mask_avg[i] += mask_diff * nr.mask_dec_alpha;
+                // Release
+                nr.gate_gain[i] += diff * nr.gate_gain_dec_alpha;
             }
         }
-
-        /* Convolve mask */
-        float conv_mask[NR_MASK_SIZE + ARRAY_SIZE(mask_convolve_kernel) - 1];
-        ext_arm_fill_f32(0.0f, conv_mask, ARRAY_SIZE(conv_mask));
+        /* Convolve gain */
+        ext_arm_fill_f32(0.0f, gain_db, ARRAY_SIZE(gain_db));
         arm_conv_f32(
-            nr.mask_avg + nr.filter_low_bin, n_bins,
-            mask_convolve_kernel, ARRAY_SIZE(mask_convolve_kernel),
-            conv_mask + nr.filter_low_bin);
-        float *conv_mask_aligned = conv_mask + (ARRAY_SIZE(mask_convolve_kernel) - 1) / 2;
+            nr.gate_gain + nr.filter_low_bin, n_bins,
+            gate_convolve_kernel, ARRAY_SIZE(gate_convolve_kernel),
+            gain_db + nr.filter_low_bin);
+        float *gain_aligned = gain_db + (ARRAY_SIZE(gate_convolve_kernel) - 1) / 2;
 
-        ext_arm_fill_f32(0.0f, buf1, ARRAY_SIZE(buf1));
+        /* Gain to lin */
+        for (size_t i = nr.filter_low_bin; i < nr.filter_high_bin; i++)
+        {
+            gain_aligned[i] = db2lin(gain_aligned[i]);
+        }
+
+        /* Apply gate */
         float *z_filtered = buf1;
-
-        /* Apply mask */
+        ext_arm_fill_f32(0.0f, buf1, ARRAY_SIZE(buf1));
         arm_cmplx_mult_real_f32(
             nr.fft_hist + 2 + nr.filter_low_bin * 2,
-            conv_mask_aligned + nr.filter_low_bin,
+            gain_aligned + nr.filter_low_bin,
             z_filtered + 2 + nr.filter_low_bin * 2, n_bins);
 
         /* Copy fft to history */
@@ -328,11 +330,9 @@ void nr_apply(float sample)
     }
 }
 
-void nr_set_tx(uint8_t tx)
+void nr_pause_update()
 {
-    if (tx) {
-        nr.profile_update_delay = 12500 / 64;
-    }
+    nr.profile_update_delay = 12500 / 64;
 }
 
 static void roll_left(float *pSrc, size_t steps, size_t srcSize)

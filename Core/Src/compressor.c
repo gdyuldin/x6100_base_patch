@@ -66,6 +66,14 @@ enum __attribute__((__packed__)) rx_tx_process_state {
     RX_TX_STATE_WAIT_PIN_SWITCH,
 };
 
+enum iq_offset_remove_state {
+    STATE_NORMAL,
+    STATE_WAITING_PEAK,
+    STATE_MUTE_PEAK,
+    STATE_MUTE_RECOVER,
+    STATE_RECOVER,
+};
+
 
 /**
  * State struct
@@ -135,12 +143,30 @@ typedef struct {
         enum rx_tx_process_state state;
     } rx_iq_corr;
 
+    struct {
+        int32_t i_prev;
+        int32_t q_prev;
+        int32_t i_mean;
+        int32_t q_mean;
+
+        uint32_t counter;
+        uint32_t scale_i;
+        uint8_t discharge_k;
+
+        int8_t i_sign;
+        int8_t q_sign;
+        bool i_mute;
+        bool q_mute;
+        enum iq_offset_remove_state state;
+    } rx_iq;
+
     /* General data */
     struct {
         enum mod_t mode;
         uint32_t att;
         uint32_t pre;
         uint8_t tx;
+        uint8_t hw_filter_id;
     } prev_state;
     bool swr_scan;
     uint8_t band_id;
@@ -164,8 +190,211 @@ static data_t *data = &data_arr;
 // Compressor values
 static uint8_t *cmp_enabled = (uint8_t *)CMP_ENABLED_VALUE;
 
-
 static float *am_carrier_lvl = (float *)AM_CARRIER_LEVEL_VALUE;
+
+#define ADDR_IQ_INT_IN (0x20005918)
+
+#define PEAK_TH 10000
+
+static float lin_arr[] = {
+1.        , 0.947061  , 0.89692454, 0.84944225, 0.80447363,
+       0.7618856 , 0.72155214, 0.68335389, 0.64717782, 0.61291687,
+       0.58046966, 0.54974018, 0.52063748, 0.49307546, 0.46697254,
+       0.44225148, 0.41883913, 0.3966662 , 0.37566709, 0.35577965,
+       0.33694503, 0.3191075 , 0.30221427, 0.28621534, 0.27106339,
+       0.25671357, 0.24312341, 0.2302527 , 0.21806335, 0.20651929,
+       0.19558637, 0.18523222, 0.17542621, 0.16613932, 0.15734408,
+       0.14901444, 0.14112576, 0.13365471, 0.12657916, 0.11987818,
+       0.11353195, 0.10752169, 0.10182959, 0.09643884, 0.09133346,
+       0.08649836, 0.08191922, 0.0775825 , 0.07347536, 0.06958565,
+       0.06590185, 0.06241308, 0.05910899, 0.05597982, 0.0530163 ,
+       0.05020967, 0.04755162, 0.04503429, 0.04265022, 0.04039236,
+       0.03825403, 0.0362289 , 0.03431098, 0.03249459, 0.03077436,
+       0.02914519, 0.02760228, 0.02614104, 0.02475716, 0.02344654,
+       0.0222053 , 0.02102978, 0.01991648, 0.01886212, 0.01786358,
+       0.0169179 , 0.01602228, 0.01517408, 0.01437078, 0.01361   ,
+       0.0128895 , 0.01220715, 0.01156091, 0.01094889, 0.01036927,
+       0.00982033, 0.00930045, 0.00880809, 0.0083418 , 0.00790019,
+       0.00748197, 0.00708588, 0.00671076, 0.0063555 , 0.00601904,
+       0.0057004 , 0.00539863, 0.00511283, 0.00484216, 0.00458582,
+       0.00434305, 0.00411314, 0.00389539, 0.00368917, 0.00349387,
+       0.00330891, 0.00313374, 0.00296784, 0.00281073, 0.00266193,
+       0.00252101, 0.00238755, 0.00226116, 0.00214145, 0.00202809,
+       0.00192072, 0.00181904, 0.00172274, 0.00163154, 0.00154517,
+       0.00146337, 0.0013859 , 0.00131253, 0.00124305, 0.00117724,
+       0.00111492, 0.0010559 , 0.001
+};
+
+
+static inline void switch_to_normal(void) {
+    data->rx_iq.state = STATE_NORMAL;
+}
+
+static inline void switch_to_waiting_peak(void) {
+    data->rx_iq.state = STATE_WAITING_PEAK;
+    data->rx_iq.scale_i = 0;
+
+    data->rx_iq.i_mute = false;
+    data->rx_iq.q_mute = false;
+    data->rx_iq.i_sign = 0;
+    data->rx_iq.q_sign = 0;
+}
+
+static inline void switch_to_mute_peak(void) {
+    data->rx_iq.state = STATE_MUTE_PEAK;
+    data->rx_iq.counter = 1024 * 2;
+}
+
+static inline void switch_to_mute_recover(void) {
+    data->rx_iq.state = STATE_MUTE_RECOVER;
+    data->rx_iq.counter = 128;
+}
+
+static inline void switch_to_recover(void) {
+    data->rx_iq.state = STATE_RECOVER;
+    data->rx_iq.counter = 4096;
+    data->rx_iq.scale_i = ARRAY_SIZE(lin_arr) - 1;
+    data->rx_iq.scale_i = MIN(data->rx_iq.scale_i, data->rx_iq.counter);
+}
+
+static inline void start_peak_filter(bool tx) {
+    if (tx) {
+        switch_to_mute_peak();
+        data->rx_iq.counter = 128 * 100;
+        data->rx_iq.discharge_k = 14;
+    } else {
+        data->rx_iq.counter = 8192;
+        data->rx_iq.discharge_k = 5;
+        switch_to_waiting_peak();
+        // switch_to_mute_peak();
+        // data->rx_iq.counter = 1024*2;
+    }
+}
+
+void remove_iq_offset(int32_t *iq) {
+    // uint32_t n = iq - (int32_t*)(ADDR_IQ_INT_IN);
+    USE_OEM_TX_FLAG_AS(pTx);
+
+    int32_t *i = iq;
+    int32_t *q = iq + 1;
+
+    if (*pTx) {
+        *i = 0;
+        *q = 0;
+        return;
+    }
+
+
+    if (data->rx_iq.counter) {
+        data->rx_iq.counter--;
+    }
+
+    if ((data->rx_iq.state == STATE_RECOVER) || (data->rx_iq.state == STATE_MUTE_RECOVER)) {
+        // Discharge
+        data->rx_iq.i_mean -= data->rx_iq.i_mean >> data->rx_iq.discharge_k;
+        data->rx_iq.q_mean -= data->rx_iq.q_mean >> data->rx_iq.discharge_k;
+    }
+
+    int32_t i_shifted = *i - data->rx_iq.i_mean;
+    int32_t q_shifted = *q - data->rx_iq.q_mean;
+
+    data->rx_iq.i_mean += i_shifted >> 9;
+    data->rx_iq.q_mean += q_shifted >> 9;
+
+    if (data->rx_iq.state == STATE_MUTE_PEAK) {
+        // if (data->rx_iq.scale_i < ARRAY_SIZE(lin_arr)){
+        //     i_shifted = lin_arr[data->rx_iq.scale_i] * data->rx_iq.i_prev;
+        //     q_shifted = lin_arr[data->rx_iq.scale_i] * data->rx_iq.q_prev;
+        //     data->rx_iq.scale_i++;
+        // } else {
+        //     i_shifted = 0;
+        //     q_shifted = 0;
+        // }
+        i_shifted = 0;
+        q_shifted = 0;
+        if (!data->rx_iq.counter) {
+            data->rx_iq.i_mean = *i;
+            data->rx_iq.q_mean = *q;
+            switch_to_mute_recover();
+        }
+    }
+
+    if (data->rx_iq.state == STATE_WAITING_PEAK) {
+        // Find peak
+        int64_t di = (int64_t)i_shifted - data->rx_iq.i_prev;
+        int64_t dq = (int64_t)q_shifted - data->rx_iq.q_prev;
+
+        if ((di > PEAK_TH) || (dq > PEAK_TH) || (di < -PEAK_TH) || (dq < -PEAK_TH)) {
+            switch_to_mute_peak();
+            i_shifted = data->rx_iq.i_prev / 2;
+            q_shifted = data->rx_iq.q_prev / 2;
+        } else {
+            data->rx_iq.i_prev = i_shifted;
+            data->rx_iq.q_prev = q_shifted;
+        }
+
+        // if (data->rx_iq.i_mute) {
+        //     i_shifted = 0;
+        // }  else {
+        //     int8_t new_sign = i_shifted > 0 ? 1 : -1;
+        //     if (data->rx_iq.i_sign == 0) {
+        //         data->rx_iq.i_sign = new_sign;
+        //     } else if (new_sign != data->rx_iq.i_sign) {
+        //         data->rx_iq.i_mute = true;
+        //         i_shifted = 0;
+        //     }
+        // }
+
+        // if (data->rx_iq.q_mute) {
+        //     q_shifted = 0;
+        // }  else {
+        //     int8_t new_sign = q_shifted > 0 ? 1 : -1;
+        //     if (data->rx_iq.q_sign == 0) {
+        //         data->rx_iq.q_sign = new_sign;
+        //     } else if (new_sign != data->rx_iq.q_sign) {
+        //         data->rx_iq.q_mute = true;
+        //         q_shifted = 0;
+        //     }
+        // }
+        // if (data->rx_iq.scale_i < ARRAY_SIZE(lin_arr)){
+        //     i_shifted = lin_arr[data->rx_iq.scale_i] * data->rx_iq.i_prev;
+        //     q_shifted = lin_arr[data->rx_iq.scale_i] * data->rx_iq.q_prev;
+        //     data->rx_iq.scale_i++;
+        // } else {
+        //     i_shifted = 0;
+        //     q_shifted = 0;
+        // }
+
+        if (!data->rx_iq.counter) {
+            switch_to_normal();
+        }
+    }
+
+    if (data->rx_iq.state == STATE_MUTE_RECOVER)  {
+        if (!data->rx_iq.counter) {
+            switch_to_recover();
+        } else {
+            i_shifted = 0;
+            q_shifted = 0;
+        }
+    }
+
+    if (data->rx_iq.state == STATE_RECOVER) {
+        if (data->rx_iq.scale_i > 0) {
+            i_shifted = lin_arr[data->rx_iq.scale_i] * i_shifted;
+            q_shifted = lin_arr[data->rx_iq.scale_i] * q_shifted;
+            data->rx_iq.scale_i--;
+        }
+        if (!data->rx_iq.counter) {
+            switch_to_normal();
+        }
+    }
+
+
+    *i = i_shifted;
+    *q = q_shifted;
+}
+
 
 inline static void fast_iq_offset_counter_setup() {
     USE_OEM_TX_FLAG_AS(pTx);
@@ -238,7 +467,7 @@ inline static void fast_iq_offset_counter_setup() {
  * Setup data storage. Inject, calls at startup
  */
 __attribute__((optimize("O1"))) void init_data(void) {
-    memset((void*)data, 0, sizeof(*data));
+    fill_zero((uint8_t*)data, sizeof(*data));
 
     ring_buf_init(&data->comp.dline, data->comp.dline_data, ARRAY_SIZE(data->comp.dline_data));
     ring_buf_init(&data->comp.squared_acc, data->comp.squared_acc_data, ARRAY_SIZE(data->comp.squared_acc_data));
@@ -250,8 +479,6 @@ __attribute__((optimize("O1"))) void init_data(void) {
     set_pwr(5.0f);
 
     set_flow_params(x6100_flow_fp32);
-
-
 
     anf_init();
     comm_init();
@@ -267,14 +494,25 @@ __attribute__((optimize("O1"))) void init_data(void) {
  * Update signal processing parameters. Inject, calls at beginning of the DMA process.
  */
 
+enum demod_info {
+    DEMOD_SSB,
+    DEMOD_AM,
+    DEMOD_FM,
+};
+
+static inline enum demod_info get_demod_info(uint8_t mode) {
+    enum demod_info info = DEMOD_SSB;
+    if (mode == MOD_AM) {
+        info = DEMOD_AM;
+    } else if (mode == MOD_NFM) {
+        info = DEMOD_FM;
+    }
+    return info;
+}
+
 static void reset_filters_states_on_changes() {
     USE_OEM_MODULATION_AS(pMode);
 
-    bool *reset = (bool*)RESET_FILTERS_STATE;
-    if (*reset) {
-        // nr_reset();
-        return;
-    }
     // arm_fill_f32(0.0,data.f.i_lpf.pState,0x14);                      0x20009178
     // arm_fill_f32(0.0,data.f.q_lpf.pState,0x14);                      0x20009244
 
@@ -308,23 +546,50 @@ static void reset_filters_states_on_changes() {
     uint32_t *att = (uint32_t*)ATT;
     uint32_t *pre = (uint32_t*)PRE;
 
-    bool clear = false;
+    bool clear_after_demod = false;
+    bool clear_before_demod = false;
+
+    bool *reset = (bool*)RESET_FILTERS_STATE;
+    if (*reset) {
+        clear_after_demod = true;
+        start_peak_filter(false);
+
+        // Silence after reset
+        // *(uint32_t*)(0x2000a704) = 16;
+        // clear_before_demod = true;
+        // Not clear all filters
+        // *reset = false;
+        // return;
+    }
+
+
     uint32_t *decim2_i = (uint32_t*)FIR_DECIM_2_I;
 
     if (*pMode != data->prev_state.mode) {
+        if (get_demod_info(*pMode) != get_demod_info(data->prev_state.mode)) {
+            *reset = true;
+            // clear_before_demod = true;
+        }
         data->prev_state.mode = *pMode;
-        clear = true;
     }
     if (*pre != data->prev_state.pre) {
         data->prev_state.pre = *pre;
-        clear = true;
+        start_peak_filter(false);
+        clear_after_demod = true;
     }
     if (*att != data->prev_state.att) {
         data->prev_state.att = *att;
-        clear = true;
+        start_peak_filter(false);
+        clear_after_demod = true;
     }
 
-    if (clear) {
+    uint8_t *hw_filter_id = (uint8_t *)(0x200000f7);
+    if (*hw_filter_id != data->prev_state.hw_filter_id) {
+        *reset = true;
+        data->prev_state.hw_filter_id = *hw_filter_id;
+    }
+
+    if (clear_after_demod) {
         // interp
         ext_arm_fill_f32(0.0f, (float*)FIR_INTERP_8_STATE, 8);
         ext_arm_fill_f32(0.0f, (float*)FIR_INTERP_8_BUF, 8);
@@ -334,6 +599,64 @@ static void reset_filters_states_on_changes() {
         ext_arm_fill_f32(0.0f, (float*)FIR_DECIM_2_STATE, 0x25);
 
         *decim2_i = 0;
+    }
+
+    if (clear_before_demod) {
+#define addr_fir_decim_8_0_pstate (0x20008af0)
+#define addr_fir_decim_8_1_pstate (0x20008d3c)
+
+#define addr_fir_decim_8_0_buf    (0x20008c10)
+#define addr_fir_decim_8_1_buf    (0x20008e5c)
+
+#define addr_fir_decim_8_0_i    (0x20008c0c)
+#define addr_fir_decim_8_1_i    (0x20008e58)
+
+#define addr_fir_decim_4_0_pstate (0x200087e8)
+#define addr_fir_decim_4_1_pstate (0x20008934)
+
+#define addr_fir_decim_4_0_buf    (0x20008888)
+#define addr_fir_decim_4_1_buf    (0x200089d4)
+
+#define addr_fir_decim_4_0_i    (0x20008884)
+#define addr_fir_decim_4_1_i    (0x200089d0)
+
+#define addr_i_lpf_state        (0x20009178)
+#define addr_q_lpf_state        (0x20009244)
+
+
+        ext_arm_fill_f32(0.0f, (float*)addr_i_lpf_state, 0x14);
+        ext_arm_fill_f32(0.0f, (float*)addr_q_lpf_state, 0x14);
+
+
+        ext_arm_fill_f32(0.0f, (float*)addr_fir_decim_8_0_pstate, 0x47);
+        ext_arm_fill_f32(0.0f, (float*)addr_fir_decim_8_1_pstate, 0x47);
+
+        ext_arm_fill_f32(0.0f, (float*)addr_fir_decim_8_0_buf, 8);
+        ext_arm_fill_f32(0.0f, (float*)addr_fir_decim_8_1_buf, 8);
+
+        *(uint32_t*)(addr_fir_decim_8_0_i) = 0;
+        *(uint32_t*)(addr_fir_decim_8_1_i) = 0;
+
+
+        ext_arm_fill_f32(0.0f, (float*)addr_fir_decim_4_0_pstate, 0x27);
+        ext_arm_fill_f32(0.0f, (float*)addr_fir_decim_4_1_pstate, 0x27);
+
+        ext_arm_fill_f32(0.0f, (float*)addr_fir_decim_4_0_buf, 4);
+        ext_arm_fill_f32(0.0f, (float*)addr_fir_decim_4_1_buf, 4);
+
+        *(uint32_t*)(addr_fir_decim_4_0_i) = 0;
+        *(uint32_t*)(addr_fir_decim_4_1_i) = 0;
+
+
+        // arm_fill_f32(0.0,data.f.a_filters_1[1].pState,0x14);             0x200093dc
+        // arm_fill_f32(0.0,data.f.a_filters_1[0].pState,0x14);             0x20009310
+        // ext_arm_fill_f32(0.0f, (float*)(0x200093dc), 0x14);
+        // ext_arm_fill_f32(0.0f, (float*)(0x20009310), 0x14);
+
+    }
+
+    if (*reset) {
+        nr_pause_update();
     }
 }
 
@@ -359,15 +682,17 @@ void configure(void) {
     if (data->tx_amp_coeffs.outdated) {
         tx_coeff_calc(data->tx_amp_coeffs.pwr);
     }
-    fast_iq_offset_counter_setup();
+    // fast_iq_offset_counter_setup();
 
     // Reset ring buffers (for compressor) on RX/TX state change
     if (data->prev_state.tx != *pTx) {
         data->prev_state.tx = *pTx;
         if (*pTx) {
             ring_buf_reset(&data->comp.dline);
+            nr_pause_update();
+        } else {
+            start_peak_filter(true);
         }
-        nr_set_tx(*pTx);
     }
     nr_setup_filters();
 

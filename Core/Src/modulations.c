@@ -35,15 +35,14 @@ static struct {
 
 
 void fm_demod_init(void) {
-    memset((void*)&fm_demod, 0, sizeof(fm_demod));
-    memset((void*)&fm_sql, 0, sizeof(fm_sql));
-
+    ext_arm_fill_f32(0.0f, (float *)fm_demod.iq_history, ARRAY_SIZE(fm_demod.iq_history) * 2);
     fm_demod.avg_k = 0.0f;
     fm_demod.hpf_env = 0.0f;
 
     fm_demod.iir_snr_detector.numStages = 1;
     fm_demod.iir_snr_detector.pCoeffs = fm_demod.iir_snr_detector_coeffs;
     fm_demod.iir_snr_detector.pState = fm_demod.iir_snr_detector_state;
+    ext_arm_fill_f32(0.0f, fm_demod.iir_snr_detector_state, ARRAY_SIZE(fm_demod.iir_snr_detector_state));
     fm_demod.iir_snr_detector_coeffs[0] = 0.11735104f;
     fm_demod.iir_snr_detector_coeffs[1] = -0.23470207f;
     fm_demod.iir_snr_detector_coeffs[2] = 0.11735104f;
@@ -54,6 +53,7 @@ void fm_demod_init(void) {
     fm_demod.deemp_filter.numStages = 1;
     fm_demod.deemp_filter.pCoeffs = fm_demod.deemp_filter_coeffs;
     fm_demod.deemp_filter.pState = fm_demod.deemp_filter_state;
+    ext_arm_fill_f32(0.0f, fm_demod.deemp_filter_state, ARRAY_SIZE(fm_demod.deemp_filter_state));
     fm_demod.deemp_filter_coeffs[0] = 1.0f;
     fm_demod.deemp_filter_coeffs[1] = 0.4133537804899683f;
     fm_demod.deemp_filter_coeffs[2] = 0.0f;
@@ -64,14 +64,21 @@ void fm_demod_init(void) {
     fm_demod.preemp_filter.numStages = 1;
     fm_demod.preemp_filter.pCoeffs = fm_demod.preemp_filter_coeffs;
     fm_demod.preemp_filter.pState = fm_demod.preemp_filter_state;
+    ext_arm_fill_f32(0.0f, fm_demod.preemp_filter_state, ARRAY_SIZE(fm_demod.preemp_filter_state));
     fm_demod.preemp_filter_coeffs[0] = 1.0f;
     fm_demod.preemp_filter_coeffs[1] = -0.3441537868654123f;
     fm_demod.preemp_filter_coeffs[2] = 0.0f;
     fm_demod.preemp_filter_coeffs[3] = -0.6558462131345877f;
     fm_demod.preemp_filter_coeffs[4] = 0.0f;
 
-    fm_demod.emphasis_on = 1;
     fm_demod.phase = 0.0f;
+
+    fm_demod.emphasis_on = 1;
+
+    fm_sql.counter = 0;
+    fm_sql.iq_rms_db = 0.0f;
+    fm_sql.iq_squared_cnt = 0;
+    fm_sql.iq_squared_sum = 0.0f;
 }
 
 

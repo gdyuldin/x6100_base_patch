@@ -21,3 +21,14 @@ inline float dc_blocker(float val, float k, struct dc_blocker_t *dc) {
     dc->ym1 = tmp;
     return tmp;
 }
+
+__attribute__((optimize("O1")))
+void fill_zero(uint8_t *data, uint32_t size) {
+  uint8_t *stop;
+
+  stop = data + size;
+  for (; data != stop; data++) {
+    *data = 0;
+  }
+  return;
+}

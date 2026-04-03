@@ -114,6 +114,8 @@ int main(void)
     a = am_modulation(a, b, 1.0f);
     b = fm_modulate(a);
     nr_apply(a);
+    int32_t ai;
+    remove_iq_offset(&ai);
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
