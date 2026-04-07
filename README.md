@@ -13,8 +13,9 @@ Compiled firmwares might be downloaded at [firmwares](./firmwares/) directory.
 2. Boot with original firmware (without SD card)
 3. Connect transceiver to WiFi
 4. Copy downloaded file to transceiver using WinSCP or FileZilla. Destination path is `/usr/firmware`
-5. Open System settings -> Firmware upgrade on transceiver, choose uploaded file and update.
-6. Check system info - BASE version should contain r<version> suffix
+5. Connect external power supply.
+6. Open System settings -> Firmware upgrade on transceiver, choose uploaded file and update.
+7. Check system info - BASE version should contain r<version> suffix
 
 Steps 3-4 very similar to opening TX, just copy files instead of editing. https://www.youtube.com/watch?v=9oviNzXT-v8 
 
