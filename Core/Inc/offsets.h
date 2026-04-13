@@ -76,6 +76,7 @@
 #define NRE_FLAG                        (0x2000b2e5)
 #define NR_THR_F                        (0x2000b358)
 #define NR_OUT_WRITE                    (0x2000b2e8)
+#define NR_OUT_READ                     (0x2000b2ec)
 #define NR_OUT_BUF                      (0x2000aae4)
 
 #define FILTER_FREQUENCIES              (0x2000a8c4)
