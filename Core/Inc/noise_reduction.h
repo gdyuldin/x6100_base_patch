@@ -20,6 +20,7 @@
 
 
 int nr_init(void);
+void nr_set_slope(uint8_t slope);
 void nr_reset(void);
 void nr_setup_filters(void);
 void nr_apply(float sample);

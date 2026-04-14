@@ -21,6 +21,7 @@ struct {
     x6100_reg_flow_fmt_fm_emp_t flow_fm_emp;
     x6100_reg_dac_adc_offsets_t dac_adc_offsets;
     x6100_reg_tx_filter_t tx_filters;
+    x6100_reg_nrthr_nbw_nbthr_nre_nbe_t nr_nb;
 } i2c_raw __attribute((section(".ccmram")));
 
 struct
@@ -319,6 +320,13 @@ void process_i2c_cmd(void) {
             flow.info.fft_dec = fft_dec;
         }
     }
+
+    // NR-NB
+    if (i2c_regs[x6100_nrthr_nbw_nbthr_nre_nbe] != i2c_raw.nr_nb.i) {
+        i2c_raw.nr_nb.i = i2c_regs[x6100_nrthr_nbw_nbthr_nre_nbe];
+        nr_set_slope(i2c_raw.nr_nb.v.nr_slope);
+    }
+
     if (i2c_regs[x6100_if_shift] != i2c_raw.if_shift) {
         i2c_raw.if_shift = i2c_regs[x6100_if_shift];
         bool on = !((i2c_raw.if_shift >> 24) & 0xFF);

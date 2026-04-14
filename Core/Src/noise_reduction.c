@@ -104,8 +104,6 @@ int nr_init(void)
 {
     ARM_RFFT_INIT(NR_NFFT)(&nr.rfft);
 
-    // self.increase_a = 1 - np.exp(-self.hop / (self.sr * 5))
-    // self.decrease_a = 1 - np.exp(-self.hop / (self.sr * 0.5))
     // Time in seconds
     nr.profile_grow_alpha = 1.0f - expf(-(float)NR_HOP / (NR_SAMPLING_RATE * 5.0f));
     nr.profile_fall_alpha = 1.0f - expf(-(float)NR_HOP / (NR_SAMPLING_RATE * 0.1f));
@@ -115,12 +113,18 @@ int nr_init(void)
     nr.gate_gain_inc_alpha = 1.0f - expf(-(float)NR_HOP / (NR_SAMPLING_RATE * 0.01f));
     nr.gate_gain_dec_alpha = 1.0f - expf(-(float)NR_HOP / (NR_SAMPLING_RATE * 0.05f));
 
-    nr.slope = 6;
+    nr.slope = 3.0f;
 
     nr_reset();
     nr.profile_update_delay = 0;
 
     return 0;
+}
+
+void nr_set_slope(uint8_t slope) {
+    if (slope > 1) {
+        nr.slope = slope;
+    }
 }
 
 void nr_reset(void) {
@@ -170,18 +174,15 @@ void nr_apply(float sample)
 
     float *nrthr = (float *)NR_THR_F;
     uint32_t *nr_out_write = (uint32_t *)NR_OUT_WRITE;
+    uint32_t *nr_out_read = (uint32_t *)NR_OUT_READ;
     float *nr_out_buf = (float *)NR_OUT_BUF;
 
     float *agc_scale = (float*)AGC_SCALE;
     uint8_t *agc_on = (uint8_t*)AGC_ON;
 
     if (*nre_flag == 0) {
-        uint32_t *nr_out_write = (uint32_t*)0x2000b2e8;
-        uint32_t *nr_out_read = (uint32_t*)0x2000b2e8;
-        uint32_t *nr_buf_in = (uint32_t*)0x2000b2e8;
         *nr_out_write = 0;
         *nr_out_read = 0;
-        *nr_buf_in = 0;
 
         nr.agc_scale_write = nr.agc_scales;
         nr.in_buf_i = 0;
@@ -200,7 +201,7 @@ void nr_apply(float sample)
     } else {
         *nr.agc_scale_write++ = *agc_scale;
     }
-    *nr.agc_scale_write++ = 100.0f;
+
     if ((nr.agc_scales + ARRAY_SIZE(nr.agc_scales)) <= nr.agc_scale_write) {
         nr.agc_scale_write = nr.agc_scales;
     }
@@ -220,10 +221,10 @@ void nr_apply(float sample)
         float agc_k = 0.0f;
         for (size_t i = 0; i < ARRAY_SIZE(nr.agc_scales); i++)
         {
-            agc_k += nr.agc_scales[i];
+            agc_k += nr.agc_scales[i] * nr.agc_scales[i];
         }
 
-        agc_k = 100.0f * ARRAY_SIZE(nr.agc_scales) / agc_k;
+        agc_k = 100.0f * ARRAY_SIZE(nr.agc_scales) / ext_sqrt_f32(agc_k);
 
         /* Apply window */
         float *in_chunk = buf1;
@@ -264,7 +265,7 @@ void nr_apply(float sample)
         }
 
         /* Compute SNR */
-        float th = *nrthr / 4.0f + 9.0f;
+        float th = *nrthr / 8.0f + 12.5f;
         for (size_t i = nr.filter_low_bin; i < nr.filter_high_bin; i++)
         {
             float snr = mag[i] - nr.profile[i];
@@ -348,3 +349,4 @@ static void roll_left(float *pSrc, size_t steps, size_t srcSize)
         *dst++ = *src++;
     }
 }
+

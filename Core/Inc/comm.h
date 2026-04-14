@@ -22,6 +22,7 @@ typedef enum
     x6100_flow_fm_emp = 18,
     x6100_dac_adc_offsets = 19,
     x6100_voxg_voxag_voxdly_voxe = 22,
+    x6100_nrthr_nbw_nbthr_nre_nbe = 23,
     x6100_dnfcnt_dnfwidth_dnfe = 24,
     x6100_cmplevel_cmpe = 25,
     x6100_if_shift = 35,
@@ -56,6 +57,15 @@ I2C_REG_T({
     uint16_t delay : 14;
     bool on : 1;
 }) x6100_reg_vox_t;
+
+I2C_REG_T({
+    uint8_t nr_level;
+    uint8_t nb_width;
+    uint8_t nb_level;
+    uint8_t nre : 1;
+    uint8_t nbe : 1;
+    uint8_t nr_slope: 4;  // To control NR slope
+}) x6100_reg_nrthr_nbw_nbthr_nre_nbe_t;
 
 
 
