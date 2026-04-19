@@ -6,9 +6,6 @@
 
 #include <dsp/filtering_functions.h>
 
-#define M_PI_F 3.14159265358979323846f
-#define M_TWOPI_F 6.283185307179586f
-
 /**
  * OEM variables
 */

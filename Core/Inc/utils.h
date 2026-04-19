@@ -6,7 +6,11 @@
 
 #include <stdint.h>
 
+#define CCMRAM __attribute((section(".ccmram")))
+
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(*a))
+#define CLIP(x, low, high) (x > high ? high : (x < low ? low : x))
+#define ABS(x) (x < 0 ? -x: x)
 
 typedef struct {
     float real;

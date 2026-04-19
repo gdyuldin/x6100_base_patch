@@ -553,11 +553,11 @@ _jump_to_if_shift_wrapper:
 
 .section .if_shift_wrapper, "ax"
 _if_shift_wrapper:
-  push {r0-r3, ip}
-  vpush {s7-s15}
+  push {r0-r3}
+  vpush {s11-s15}
   bl _if_shift
-  vpop {s7-s15}
-  pop {r0-r3, ip}
+  vpop {s11-s15}
+  pop {r0-r3}
 
   ldrb.w r3, [sp,#0x107]  // Call original code
 
@@ -615,10 +615,10 @@ _nr_apply_wrapper:
 
   ldr r0, [sp, #0x10]
   vpush {s0-s15}
-  push {r1-r3, r7-r9, ip, fp, sl}
+  push {r1-r3, ip}
   vldr s0, [r0, #-0x4]
   bl _nr_apply
-  pop {r1-r3, r7-r9, ip, fp, sl}
+  pop {r1-r3, ip}
   vpop {s0-s15}
 
   /*
@@ -645,3 +645,11 @@ Skip AM demod multiplication
 .section .insert_to_skip_am_mult, "ax"
 _skip_am_mult_wrapper:
   b 0x08024d2c
+
+@ sl -> R10
+@ fp -> R11
+@ ip -> R12
+@ sp -> R13
+@ lr -> R14
+@ pc -> R15
+

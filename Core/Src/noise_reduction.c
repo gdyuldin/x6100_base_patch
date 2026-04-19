@@ -3,139 +3,171 @@
 #include "external.h"
 #include "utils.h"
 
+#include "noise_reduction_data.c"
+
 #include <stdbool.h>
+#include <arm_math.h>
 
-#define ARM_RFFT_INIT_HELPER(n) arm_rfft_fast_init_ ##n## _f32
-#define ARM_RFFT_INIT(x) ARM_RFFT_INIT_HELPER(x)
-#define CCMRAM __attribute((section(".ccmram")))
+#define NR_SAMPLING_RATE 12500
+#define NR_MAX_NFFT 512
 
-#define CLIP(x, low, high) (x > high ? high : (x < low ? low : x))
+#define NR_NORM_VAL 0.6666666666666666f  // Constant for hann window and  1/4 hop
+#define NR_MAX_MASK_SIZE (NR_MAX_NFFT / 2 - 1)
 
-#define ARRAY_SIZE(a) (sizeof(a) / sizeof(*a))
-#define ABS(x) (x < 0 ? -x: x)
+// For some reasons, it doesn't working with variables
+// nr.noise_psd_alpha_up = 1.0f - expf(-(float)nr.fft->hop / (NR_SAMPLING_RATE * 5.0f));
+// nr.noise_psd_alpha_down = 1.0f - expf(-(float)nr.fft->hop / (NR_SAMPLING_RATE * 0.1f));
+// Values is optimal for 512 NFFT, a bit fast for 256
+#define NR_NOISE_ALPHA_UP 0.0020459042789229276f
+#define NR_NOISE_ALPHA_DOWN 0.09733158791905794f
 
-static void roll_left(float *pSrc, size_t steps, size_t srcSize);
+typedef struct {
+    float data[NR_MAX_NFFT];
+    uint32_t cap;
+    uint32_t w;
+    uint32_t r;
+} buf_t;
 
-const float window[NR_NFFT] = {
-    0.000000e+00f,	1.505907e-04f,	6.022719e-04f,	1.354772e-03f,	2.407637e-03f,	3.760233e-03f,	5.411745e-03f,	7.361179e-03f,
-    9.607360e-03f,	1.214893e-02f,	1.498437e-02f,	1.811197e-02f,	2.152983e-02f,	2.523591e-02f,	2.922797e-02f,	3.350360e-02f,
-    3.806023e-02f,	4.289512e-02f,	4.800535e-02f,	5.338785e-02f,	5.903937e-02f,	6.495650e-02f,	7.113569e-02f,	7.757322e-02f,
-    8.426519e-02f,	9.120759e-02f,	9.839623e-02f,	1.058268e-01f,	1.134948e-01f,	1.213956e-01f,	1.295244e-01f,	1.378765e-01f,
-    1.464466e-01f,	1.552297e-01f,	1.642205e-01f,	1.734136e-01f,	1.828034e-01f,	1.923842e-01f,	2.021503e-01f,	2.120959e-01f,
-    2.222149e-01f,	2.325012e-01f,	2.429486e-01f,	2.535509e-01f,	2.643016e-01f,	2.751943e-01f,	2.862225e-01f,	2.973793e-01f,
-    3.086583e-01f,	3.200525e-01f,	3.315551e-01f,	3.431591e-01f,	3.548577e-01f,	3.666436e-01f,	3.785099e-01f,	3.904494e-01f,
-    4.024548e-01f,	4.145191e-01f,	4.266348e-01f,	4.387947e-01f,	4.509914e-01f,	4.632177e-01f,	4.754662e-01f,	4.877294e-01f,
-    5.000000e-01f,	5.122706e-01f,	5.245338e-01f,	5.367823e-01f,	5.490086e-01f,	5.612053e-01f,	5.733652e-01f,	5.854809e-01f,
-    5.975452e-01f,	6.095506e-01f,	6.214901e-01f,	6.333564e-01f,	6.451423e-01f,	6.568409e-01f,	6.684449e-01f,	6.799475e-01f,
-    6.913417e-01f,	7.026207e-01f,	7.137775e-01f,	7.248057e-01f,	7.356984e-01f,	7.464491e-01f,	7.570514e-01f,	7.674988e-01f,
-    7.777851e-01f,	7.879041e-01f,	7.978497e-01f,	8.076158e-01f,	8.171966e-01f,	8.265864e-01f,	8.357795e-01f,	8.447703e-01f,
-    8.535534e-01f,	8.621235e-01f,	8.704756e-01f,	8.786044e-01f,	8.865052e-01f,	8.941732e-01f,	9.016038e-01f,	9.087924e-01f,
-    9.157348e-01f,	9.224268e-01f,	9.288643e-01f,	9.350435e-01f,	9.409606e-01f,	9.466122e-01f,	9.519946e-01f,	9.571049e-01f,
-    9.619398e-01f,	9.664964e-01f,	9.707720e-01f,	9.747641e-01f,	9.784702e-01f,	9.818880e-01f,	9.850156e-01f,	9.878511e-01f,
-    9.903926e-01f,	9.926388e-01f,	9.945883e-01f,	9.962398e-01f,	9.975924e-01f,	9.986452e-01f,	9.993977e-01f,	9.998494e-01f,
-    1.000000e+00f,	9.998494e-01f,	9.993977e-01f,	9.986452e-01f,	9.975924e-01f,	9.962398e-01f,	9.945883e-01f,	9.926388e-01f,
-    9.903926e-01f,	9.878511e-01f,	9.850156e-01f,	9.818880e-01f,	9.784702e-01f,	9.747641e-01f,	9.707720e-01f,	9.664964e-01f,
-    9.619398e-01f,	9.571049e-01f,	9.519946e-01f,	9.466122e-01f,	9.409606e-01f,	9.350435e-01f,	9.288643e-01f,	9.224268e-01f,
-    9.157348e-01f,	9.087924e-01f,	9.016038e-01f,	8.941732e-01f,	8.865052e-01f,	8.786044e-01f,	8.704756e-01f,	8.621235e-01f,
-    8.535534e-01f,	8.447703e-01f,	8.357795e-01f,	8.265864e-01f,	8.171966e-01f,	8.076158e-01f,	7.978497e-01f,	7.879041e-01f,
-    7.777851e-01f,	7.674988e-01f,	7.570514e-01f,	7.464491e-01f,	7.356984e-01f,	7.248057e-01f,	7.137775e-01f,	7.026207e-01f,
-    6.913417e-01f,	6.799475e-01f,	6.684449e-01f,	6.568409e-01f,	6.451423e-01f,	6.333564e-01f,	6.214901e-01f,	6.095506e-01f,
-    5.975452e-01f,	5.854809e-01f,	5.733652e-01f,	5.612053e-01f,	5.490086e-01f,	5.367823e-01f,	5.245338e-01f,	5.122706e-01f,
-    5.000000e-01f,	4.877294e-01f,	4.754662e-01f,	4.632177e-01f,	4.509914e-01f,	4.387947e-01f,	4.266348e-01f,	4.145191e-01f,
-    4.024548e-01f,	3.904494e-01f,	3.785099e-01f,	3.666436e-01f,	3.548577e-01f,	3.431591e-01f,	3.315551e-01f,	3.200525e-01f,
-    3.086583e-01f,	2.973793e-01f,	2.862225e-01f,	2.751943e-01f,	2.643016e-01f,	2.535509e-01f,	2.429486e-01f,	2.325012e-01f,
-    2.222149e-01f,	2.120959e-01f,	2.021503e-01f,	1.923842e-01f,	1.828034e-01f,	1.734136e-01f,	1.642205e-01f,	1.552297e-01f,
-    1.464466e-01f,	1.378765e-01f,	1.295244e-01f,	1.213956e-01f,	1.134948e-01f,	1.058268e-01f,	9.839623e-02f,	9.120759e-02f,
-    8.426519e-02f,	7.757322e-02f,	7.113569e-02f,	6.495650e-02f,	5.903937e-02f,	5.338785e-02f,	4.800535e-02f,	4.289512e-02f,
-    3.806023e-02f,	3.350360e-02f,	2.922797e-02f,	2.523591e-02f,	2.152983e-02f,	1.811197e-02f,	1.498437e-02f,	1.214893e-02f,
-    9.607360e-03f,	7.361179e-03f,	5.411745e-03f,	3.760233e-03f,	2.407637e-03f,	1.354772e-03f,	6.022719e-04f,	1.505907e-04f,
+typedef struct {
+    // FFT
+    arm_rfft_fast_instance_f32 rfft;
+    uint32_t N;
+    uint32_t hop;
+    uint32_t overlap;
+    uint32_t mask_size;
+} nr_fft_t;
+
+enum step_t {
+    STAGE1,
+    STAGE2,
 };
 
-const float gate_convolve_kernel[] = {
-    6.250000e-02f,	1.250000e-01f,	1.875000e-01f,	2.500000e-01f,	1.875000e-01f,	1.250000e-01f,	6.250000e-02f,
-};
 
 typedef struct
 {
-
     uint32_t profile_update_delay;
 
-    // FFT history
-    float fft_hist[NR_NFFT];
+    float prev_mag[NR_MAX_MASK_SIZE];
+
+    // Noise PSD
+    float noise_psd[NR_MAX_MASK_SIZE];
+
+    // Smooth gain to apply
+    float gain_smooth[NR_MAX_MASK_SIZE];
 
     // AGC history
-    float agc_scales[NR_NFFT];
-    float *agc_scale_write;
+    buf_t agc_scales;
 
     // input buffer
-    float in_buf[NR_NFFT];
-    uint16_t in_buf_i;
-
-    // FFT
-    arm_rfft_fast_instance_f32 rfft;
-
-    // Noise profile LPF parameters
-    float profile_fall_alpha;
-    float profile_grow_alpha;
-    float profile[NR_MASK_SIZE];
-
-    // gate gain
-    float gate_gain_inc_alpha;
-    float gate_gain_dec_alpha;
-    float gate_gain[NR_MASK_SIZE];
-    float slope;
+    buf_t in_buf;
 
     // Output buffer
-    float out_buf[NR_NFFT];
+    buf_t out_buf;
+
+    uint32_t buf_mask;
+
+    nr_fft_t fft_512_S;
+    nr_fft_t fft_256_S;
+    nr_fft_t *fft;
 
     // Filters
     uint32_t filter_low_bin;
     uint32_t filter_high_bin;
+
+    // Parameters
+    float alpha;
+    float beta;
+    float lambda_g;
+
+    // Soft clip parameters
+    float ptp;
+    float ptp_inv;
+
+    // State
+    enum step_t cur_step;
+    enum step_t next_step;
+
+    // Buffers
+    float Z[NR_MAX_NFFT];
+    float signal_buf[NR_MAX_NFFT];
 } nr_data_t;
+
+
+static void nr_set_fft_size(uint16_t size);
+
+__STATIC_FORCEINLINE void update_mag_mag2(float *z, int i, float agc_k2);
+__STATIC_FORCEINLINE float soft_clip(float x, const float min, const float ptp, const float ptp_inv);
+
+__STATIC_FORCEINLINE void nr_buf_reset(buf_t *buf);
+__STATIC_FORCEINLINE void nr_buf_put(buf_t *buf, float val);
+// Add a value to already stored and move write pointer
+__STATIC_FORCEINLINE void nr_buf_add(buf_t *buf, float val);
+__STATIC_FORCEINLINE float nr_buf_get(buf_t *buf);
+__STATIC_FORCEINLINE float nr_buf_get_set(buf_t *buf, float new_val);
+__STATIC_FORCEINLINE uint32_t nr_buf_ready_size(buf_t *buf);
+// Left shift read
+__STATIC_FORCEINLINE void nr_buf_lsr(buf_t *buf, uint32_t shift);
+// Left shift write
+__STATIC_FORCEINLINE void nr_buf_lsw(buf_t *buf, uint32_t shift);
+
+// Split processing to fit performance
+__STATIC_FORCEINLINE void step1();
+__STATIC_FORCEINLINE void step2();
+
 
 CCMRAM nr_data_t nr;
 
-CCMRAM float buf1[NR_NFFT];
-CCMRAM float buf2[NR_NFFT];
-CCMRAM float mag[NR_MASK_SIZE];
-CCMRAM float gain_db[NR_MASK_SIZE + ARRAY_SIZE(gate_convolve_kernel) - 1];
+CCMRAM float mag2[NR_MAX_MASK_SIZE];
+CCMRAM float mag2_avg[NR_MAX_MASK_SIZE];
+CCMRAM float raw_gains[NR_MAX_MASK_SIZE];
+
+CCMRAM float window[NR_MAX_NFFT];
+
 
 int nr_init(void)
 {
-    ARM_RFFT_INIT(NR_NFFT)(&nr.rfft);
+    // Init fft 512
+    arm_rfft_fast_init_512_f32(&nr.fft_512_S.rfft);
+    nr.fft_512_S.N = 512;
+    nr.fft_512_S.hop = 128;
+    nr.fft_512_S.overlap = nr.fft_512_S.N - nr.fft_512_S.hop;
+    nr.fft_512_S.mask_size = 255;
 
-    // Time in seconds
-    nr.profile_grow_alpha = 1.0f - expf(-(float)NR_HOP / (NR_SAMPLING_RATE * 5.0f));
-    nr.profile_fall_alpha = 1.0f - expf(-(float)NR_HOP / (NR_SAMPLING_RATE * 0.1f));
+    // Init fft 256
+    arm_rfft_fast_init_256_f32(&nr.fft_256_S.rfft);
+    nr.fft_256_S.N = 256;
+    nr.fft_256_S.hop = 64;
+    nr.fft_256_S.overlap = nr.fft_256_S.N - nr.fft_256_S.hop;
+    nr.fft_256_S.mask_size = 127;
 
-    // 1 - np.exp(-self.hop / (self.sr * 0.05))
-    // Time in seconds
-    nr.gate_gain_inc_alpha = 1.0f - expf(-(float)NR_HOP / (NR_SAMPLING_RATE * 0.01f));
-    nr.gate_gain_dec_alpha = 1.0f - expf(-(float)NR_HOP / (NR_SAMPLING_RATE * 0.05f));
+    nr_set_fft_size(512);
 
-    nr.slope = 3.0f;
+    nr.buf_mask = ARRAY_SIZE(nr.in_buf.data) - 1;
+
+    nr.agc_scales.cap = ARRAY_SIZE(nr.agc_scales.data);
+    nr.in_buf.cap = ARRAY_SIZE(nr.in_buf.data);
+    nr.out_buf.cap = ARRAY_SIZE(nr.out_buf.data);
 
     nr_reset();
     nr.profile_update_delay = 0;
+    nr.cur_step = STAGE1;
+    nr.next_step = STAGE1;
 
     return 0;
 }
 
-void nr_set_slope(uint8_t slope) {
-    if (slope > 1) {
-        nr.slope = slope;
-    }
-}
 
 void nr_reset(void) {
-    nr.in_buf_i = 0;
-    ext_arm_fill_f32(0.0f, nr.fft_hist, NR_NFFT);
-    ext_arm_fill_f32(0.0f, nr.out_buf, NR_NFFT);
-    ext_arm_fill_f32(0.0f, nr.gate_gain, NR_MASK_SIZE);
-    ext_arm_fill_f32(-40.0f, nr.profile, NR_MASK_SIZE);
+    nr_buf_reset(&nr.in_buf);
+    nr_buf_reset(&nr.out_buf);
+    ext_arm_fill_f32(0.0f, nr.out_buf.data, ARRAY_SIZE(nr.out_buf.data));
 
-    ext_arm_fill_f32(100.0f, nr.agc_scales, ARRAY_SIZE(nr.agc_scales));
-    nr.agc_scale_write = nr.agc_scales;
+    ext_arm_fill_f32(1.0f, nr.gain_smooth, NR_MAX_MASK_SIZE);
+    ext_arm_fill_f32(0.0f, nr.prev_mag, NR_MAX_MASK_SIZE);
+    ext_arm_fill_f32(0.1f, nr.noise_psd, NR_MAX_MASK_SIZE);
+
+    nr_buf_reset(&nr.agc_scales);
+    ext_arm_fill_f32(100.0f, nr.agc_scales.data, ARRAY_SIZE(nr.agc_scales.data));
 }
 
 void nr_setup_filters(void) {
@@ -159,12 +191,56 @@ void nr_setup_filters(void) {
         low1 = 50;
     };
 
-    int32_t low_bin = low1 * NR_NFFT / NR_SAMPLING_RATE - 2;
-    int32_t high_bin = high1 * NR_NFFT / NR_SAMPLING_RATE + 2;
+    if ((high1 - low1) > 3200) {
+        if (nr.fft->N != 256) {
+            nr_set_fft_size(256);
+            for (uint16_t i = 1; i < nr.fft->N - 1; i++)
+            {
+                nr.prev_mag[i] = (nr.prev_mag[i * 2] + nr.prev_mag[i * 2 + 1]) * 0.25f;  // 1 / (2 + 2)
+                nr.noise_psd[i] = (nr.noise_psd[i * 2] + nr.noise_psd[i * 2 + 1]) * 0.125f;  // 1 / (4 + 4)
+                nr.gain_smooth[i] = (nr.gain_smooth[i * 2] + nr.gain_smooth[i * 2 + 1]) * 0.5f;
+            }
+        }
+    } else {
+        if (nr.fft->N != 512) {
+            nr_set_fft_size(512);
+            for (uint16_t i = (nr.fft->N / 2) - 1; i > 0; i--)
+            {
+                float prev_mag = nr.prev_mag[i] * 2.0f;
+                float noise_psd = nr.noise_psd[i] * 4.0f;
+                float gain_smooth = nr.gain_smooth[i];
+                nr.prev_mag[2*i] = prev_mag;
+                nr.prev_mag[2*i + 1] = prev_mag;
+                nr.noise_psd[2 * i] = noise_psd;
+                nr.noise_psd[2 * i + 1] = noise_psd;
+                nr.gain_smooth[2 * i] = gain_smooth;
+                nr.gain_smooth[2 * i + 1] = gain_smooth;
+            }
+        }
+    }
 
-    nr.filter_low_bin = MAX(low_bin, 0);
-    nr.filter_high_bin = MIN(high_bin, NR_MASK_SIZE - 1);
+    int32_t low_bin = low1 * nr.fft->N / NR_SAMPLING_RATE - 2;
+    int32_t high_bin = high1 * nr.fft->N / NR_SAMPLING_RATE + 2;
+
+    nr.filter_low_bin = MAX(low_bin, 1);
+    nr.filter_high_bin = MIN(high_bin, NR_MAX_MASK_SIZE - 1);
     nr.filter_high_bin = MAX(nr.filter_high_bin, nr.filter_low_bin + 2);
+
+    // Setup parameters
+    float *nrthr = (float *)NR_THR_F;
+    float depth = *nrthr / 30.0f;
+    nr.alpha = 1.2f + (depth * 4.0f);
+    // float beta = 0.1f - (depth * 0.08f);
+    // beta = MAX(beta, 0.01f);
+    nr.beta = 0.15f / pow10f_c(depth);
+    nr.lambda_g = 0.5f + (depth * 0.2f);
+    nr.lambda_g = (1.0f - MIN(nr.lambda_g, 0.7f));
+
+    // Soft clip parameters
+    nr.ptp = 1.0f - nr.beta;
+    nr.ptp_inv = 1.0f / nr.ptp;
+
+    nr.cur_step = nr.next_step;
 }
 
 void nr_apply(float sample)
@@ -172,7 +248,6 @@ void nr_apply(float sample)
     USE_OEM_NRE_AS(nre_flag);
     USE_OEM_MODULATION_AS(pMode);
 
-    float *nrthr = (float *)NR_THR_F;
     uint32_t *nr_out_write = (uint32_t *)NR_OUT_WRITE;
     uint32_t *nr_out_read = (uint32_t *)NR_OUT_READ;
     float *nr_out_buf = (float *)NR_OUT_BUF;
@@ -184,8 +259,9 @@ void nr_apply(float sample)
         *nr_out_write = 0;
         *nr_out_read = 0;
 
-        nr.agc_scale_write = nr.agc_scales;
-        nr.in_buf_i = 0;
+        nr_buf_reset(&nr.agc_scales);
+        nr_buf_reset(&nr.in_buf);
+        nr_buf_reset(&nr.out_buf);
         return;
     }
 
@@ -196,15 +272,14 @@ void nr_apply(float sample)
         return;
     }
 
+    float agc2;
     if (!*agc_on) {
-        *nr.agc_scale_write++ = 100.0f;
+        // *nr.agc_scale_write++ = 100.0f * 100.0f;
+        agc2 = 100000.0f;
     } else {
-        *nr.agc_scale_write++ = *agc_scale;
+        agc2 = *agc_scale * *agc_scale;
     }
-
-    if ((nr.agc_scales + ARRAY_SIZE(nr.agc_scales)) <= nr.agc_scale_write) {
-        nr.agc_scale_write = nr.agc_scales;
-    }
+    nr_buf_put(&nr.agc_scales, agc2);
 
     // Copy data to buf
     if (isnan(sample)) {
@@ -212,123 +287,14 @@ void nr_apply(float sample)
     } else {
         sample = CLIP(sample, -2.0f, 2.0f);
     }
-    nr.in_buf[nr.in_buf_i] = sample;
-    nr.in_buf_i++;
+    nr_buf_put(&nr.in_buf, sample);
 
-    if (nr.in_buf_i >= NR_NFFT) {
-
-        /* Compute AGC k */
-        float agc_k = 0.0f;
-        for (size_t i = 0; i < ARRAY_SIZE(nr.agc_scales); i++)
-        {
-            agc_k += nr.agc_scales[i] * nr.agc_scales[i];
-        }
-
-        agc_k = 100.0f * ARRAY_SIZE(nr.agc_scales) / ext_sqrt_f32(agc_k);
-
-        /* Apply window */
-        float *in_chunk = buf1;
-        arm_mult_f32(nr.in_buf, window, in_chunk, NR_NFFT);
-        roll_left(nr.in_buf, NR_HOP, NR_NFFT);
-        nr.in_buf_i = NR_NFFT - NR_HOP;
-
-        /* FFT */
-        float *z = buf2;
-        arm_rfft_fast_f32(&nr.rfft, in_chunk, z, 0);
-
-        /* Compute magnitude (only for filtered fft bins) */
-        ext_arm_fill_f32(0.0f, mag, NR_MASK_SIZE);
-        uint32_t n_bins = nr.filter_high_bin - nr.filter_low_bin;
-        arm_cmplx_mag_f32(z + 2 + nr.filter_low_bin * 2, mag + nr.filter_low_bin, n_bins);
-
-        #pragma GCC unroll 4
-        for (size_t i = nr.filter_low_bin; i < nr.filter_high_bin; i++)
-        {
-            // Revert AGC, convert to db
-            mag[i] = lin2db(mag[i] * agc_k);
-        }
-
-        if (nr.profile_update_delay != 0) {
-            nr.profile_update_delay--;
-        } else {
-            /* Compute noise profile */
-#pragma GCC unroll 4
-            for (size_t i = nr.filter_low_bin; i < nr.filter_high_bin; i++)
-            {
-                float diff = mag[i] - nr.profile[i];
-                if (diff > 0) {
-                    nr.profile[i] += diff * nr.profile_grow_alpha;
-                } else {
-                    nr.profile[i] += diff * nr.profile_fall_alpha;
-                }
-            }
-        }
-
-        /* Compute SNR */
-        float th = *nrthr / 8.0f + 12.5f;
-        for (size_t i = nr.filter_low_bin; i < nr.filter_high_bin; i++)
-        {
-            float snr = mag[i] - nr.profile[i];
-            snr = (snr - th) * nr.slope;
-            snr = CLIP(snr, -40.0f, 0.0f);
-            float diff = snr - nr.gate_gain[i];
-            if (diff > 0) {
-                // Attack
-                nr.gate_gain[i] += diff * nr.gate_gain_inc_alpha;
-            } else {
-                // Release
-                nr.gate_gain[i] += diff * nr.gate_gain_dec_alpha;
-            }
-        }
-        /* Convolve gain */
-        ext_arm_fill_f32(0.0f, gain_db, ARRAY_SIZE(gain_db));
-        arm_conv_f32(
-            nr.gate_gain + nr.filter_low_bin, n_bins,
-            gate_convolve_kernel, ARRAY_SIZE(gate_convolve_kernel),
-            gain_db + nr.filter_low_bin);
-        float *gain_aligned = gain_db + (ARRAY_SIZE(gate_convolve_kernel) - 1) / 2;
-
-        /* Gain to lin */
-        for (size_t i = nr.filter_low_bin; i < nr.filter_high_bin; i++)
-        {
-            gain_aligned[i] = db2lin(gain_aligned[i]);
-        }
-
-        /* Apply gate */
-        float *z_filtered = buf1;
-        ext_arm_fill_f32(0.0f, buf1, ARRAY_SIZE(buf1));
-        arm_cmplx_mult_real_f32(
-            nr.fft_hist + 2 + nr.filter_low_bin * 2,
-            gain_aligned + nr.filter_low_bin,
-            z_filtered + 2 + nr.filter_low_bin * 2, n_bins);
-
-        /* Copy fft to history */
-        ext_arm_copy_f32(z, nr.fft_hist, NR_NFFT);
-
-        /* IFFT */
-        float *r_samples = buf2;
-        arm_rfft_fast_f32(&nr.rfft, z_filtered, r_samples, 1);
-
-        /* Window and sum */
-#pragma GCC unroll 4
-        for (size_t i = 0; i < NR_NFFT; i++)
-        {
-            nr.out_buf[i] += r_samples[i] * window[i];
-        }
-
-        /* Copy output to buf */
-        uint32_t write = *nr_out_write;
-        for (size_t i = 0; i < NR_HOP; i++)
-        {
-            nr_out_buf[write] = nr.out_buf[i] * NR_NORM_VAL;
-            write = (write + 1) & 0x1ff;
-        }
-        *nr_out_write = write;
-
-        /* Roll output buffer */
-        roll_left(nr.out_buf, NR_HOP, NR_NFFT);
-        ext_arm_fill_f32(0.0f, nr.out_buf + NR_NFFT - NR_HOP, NR_HOP);
+    if (nr.cur_step == STAGE1) {
+        step1();
+    } else {
+        step2();
     }
+
 }
 
 void nr_pause_update()
@@ -336,17 +302,212 @@ void nr_pause_update()
     nr.profile_update_delay = 12500 / 64;
 }
 
-static void roll_left(float *pSrc, size_t steps, size_t srcSize)
-{
-    float *dst = pSrc;
-    float *src = dst + steps;
-    float *stop = pSrc + srcSize;
-    while (src < stop)
-    {
-        *dst++ = *src++;
-        *dst++ = *src++;
-        *dst++ = *src++;
-        *dst++ = *src++;
+static void nr_set_fft_size(uint16_t size) {
+    if (size == 512) {
+        nr.fft = &nr.fft_512_S;
+        ext_arm_copy_f32(hann_window_512, window, ARRAY_SIZE(hann_window_512));
+        // 1 - np.exp(-128 / (12500 * 0.05))
+        // nr.noise_psd_alpha_up = 0.005106915141017465f;
+        // nr.noise_psd_alpha_down = 0.18518973783127057f;
+    } else {
+        nr.fft = &nr.fft_256_S;
+        ext_arm_copy_f32(hann_window_256, window, ARRAY_SIZE(hann_window_256));
+        // 1 - np.exp(-128 / (12500 * 0.05))
+        // nr.noise_psd_alpha_up = 0.002556725994413922f;
+        // nr.noise_psd_alpha_down = 0.09733158791905794f;
+    }
+    // Time in seconds
+
+    // nr.noise_psd_alpha_up = 1.0f - expf(-(float)nr.fft->hop / (NR_SAMPLING_RATE * 2.0f));
+    // nr.noise_psd_alpha_down = 1.0f - expf(-(float)nr.fft->hop / (NR_SAMPLING_RATE * 0.05f));
+}
+
+
+__STATIC_FORCEINLINE void nr_buf_reset(buf_t *buf) {
+    buf->w = 0;
+    buf->r = 0;
+}
+
+__STATIC_FORCEINLINE void nr_buf_put(buf_t *buf, float val) {
+    buf->data[buf->w] = val;
+    buf->w = (buf->w + 1) & nr.buf_mask;
+}
+
+__STATIC_FORCEINLINE void nr_buf_add(buf_t *buf, float val) {
+    buf->data[buf->w] += val;
+    buf->w = (buf->w + 1) & nr.buf_mask;
+}
+
+__STATIC_FORCEINLINE float nr_buf_get(buf_t *buf) {
+    float val = buf->data[buf->r];
+    buf->r = (buf->r + 1) & nr.buf_mask;
+    return val;
+}
+
+__STATIC_FORCEINLINE float nr_buf_get_set(buf_t *buf, float new_val) {
+    float val = buf->data[buf->r];
+    buf->data[buf->r] = new_val;
+    buf->r = (buf->r + 1) & nr.buf_mask;
+    return val;
+}
+
+__STATIC_FORCEINLINE uint32_t nr_buf_ready_size(buf_t *buf) {
+    if (buf->r == buf->w) {
+        return buf->cap;
+    }
+    return (buf->w - buf->r) & nr.buf_mask;
+}
+
+__STATIC_FORCEINLINE void nr_buf_lsr(buf_t *buf, uint32_t shift) {
+    buf->r = (buf->r - shift) & nr.buf_mask;
+}
+
+__STATIC_FORCEINLINE void nr_buf_lsw(buf_t *buf, uint32_t shift) {
+    buf->w = (buf->w - shift) & nr.buf_mask;
+}
+
+__STATIC_FORCEINLINE void update_mag_mag2(float *z, int i, float agc_k2) {
+
+    // Compute mag^2 and revert AGC
+    float real = *z++;
+    float imag = *z;
+    float mag2_val = (real * real + imag * imag) * agc_k2;
+    float mag_val;
+    arm_sqrt_f32(mag2_val, &mag_val);
+
+    mag2[i] = mag2_val;
+    mag2_avg[i] = mag_val * nr.prev_mag[i];
+    nr.prev_mag[i] = mag_val;
+}
+
+
+__STATIC_FORCEINLINE float soft_clip(float x, const float min, const float ptp, const float ptp_inv){
+    // Soft clip
+    // def smoothstep_clip(x, x_min, ptp):
+    //     # Scale and clamp to [0, 1]
+    //     x = np.clip((x - x_min) / ptp, 0, 1)
+    //     # Polynomial: 3x^2 - 2x^3
+    //     return x_min + ptp * (x * x * (3 - 2 * x))
+    x = (x - min) * ptp_inv;
+    x = CLIP(x, 0.0f, 1.0f);
+    x = min + ptp * (x * x * (3 - 2 * x));
+    return x;
+}
+
+__STATIC_FORCEINLINE void step1() {
+    if (nr_buf_ready_size(&nr.in_buf) >= nr.fft->N) {
+
+        /* Compute AGC k */
+        float agc_k2 = 0.0f;
+        #pragma GCC unroll 4
+        for (size_t i = 0; i < nr.fft->N; i++)
+        {
+            agc_k2 += nr_buf_get(&nr.agc_scales);
+        }
+        nr_buf_lsr(&nr.agc_scales, nr.fft->overlap);
+
+        agc_k2 = nr.fft->N * nr.fft->N * 10000.0f / agc_k2;
+
+        /* Apply window */
+        #pragma GCC unroll 4
+        for (size_t i = 0; i < nr.fft->N; i++)
+        {
+            nr.signal_buf[i] = window[i] * nr_buf_get(&nr.in_buf);
+        }
+        nr_buf_lsr(&nr.in_buf, nr.fft->overlap);
+
+        /* FFT */
+        arm_rfft_fast_f32(&nr.fft->rfft, nr.signal_buf, nr.Z, 0);
+
+        nr.Z[0] = 0.0f;
+        nr.Z[1] = 0.0f;
+
+        /* Compute mag squared, update_noise_profile */
+        // if (nr.profile_update_delay != 0) {
+        if (__builtin_expect(nr.profile_update_delay != 0, 0)) {
+            nr.profile_update_delay--;
+
+            // #pragma GCC unroll 4
+            #pragma GCC ivdep
+            for (size_t i = nr.filter_low_bin; i < nr.filter_high_bin; i++) {
+                update_mag_mag2(&nr.Z[i<<1], i, agc_k2);
+            }
+        } else {
+            // #pragma GCC unroll 4
+            #pragma GCC ivdep
+            for (size_t i = nr.filter_low_bin; i < nr.filter_high_bin; i++) {
+                update_mag_mag2(&nr.Z[i<<1], i, agc_k2);
+                float diff = mag2[i] - nr.noise_psd[i];
+                if (diff > 0) {
+                    nr.noise_psd[i] += diff * NR_NOISE_ALPHA_UP;
+                } else {
+                    nr.noise_psd[i] += diff * NR_NOISE_ALPHA_DOWN;
+                }
+            }
+        }
+
+        nr.next_step = STAGE2;
     }
 }
 
+__STATIC_FORCEINLINE void step2() {
+    uint32_t *nr_out_write = (uint32_t *)NR_OUT_WRITE;
+    float *nr_out_buf = (float *)NR_OUT_BUF;
+
+    /* Compute correction */
+    ext_arm_fill_f32(0.0f, raw_gains, nr.filter_high_bin + 1);
+    #pragma GCC unroll 4
+    // #pragma GCC ivdep
+    for (size_t i = nr.filter_low_bin; i < nr.filter_high_bin; i++)
+    {
+        float gain = (mag2_avg[i] - nr.alpha * nr.noise_psd[i]) / (mag2_avg[i] + 1e-15f);
+        // gain = MAX(gain, beta);
+        // gain = MIN(gain, 1.0f);
+        // gain = CLIP(gain, beta, 1.0f);
+        gain = soft_clip(gain, nr.beta, nr.ptp, nr.ptp_inv);
+        // gain = sqrtf(gain);
+        // arm_sqrt_f32(gain, &gain);
+        __ASM("VSQRT.F32 %0,%1" : "=t"(gain) : "t"(gain));
+        // freq smoothing
+        float g05 = gain * 0.5f;
+        float g025 = gain * 0.25f;
+        raw_gains[i] += g05;
+        raw_gains[i - 1] += g025;
+        raw_gains[i + 1] += g025;
+    }
+
+    /* Temporal smoothing, applying gain */
+    #pragma GCC unroll 4
+    // #pragma GCC ivdep
+    for (size_t i = nr.filter_low_bin - 1; i < (nr.filter_high_bin + 1); i++)
+    {
+        nr.gain_smooth[i] += (raw_gains[i] - nr.gain_smooth[i]) * nr.lambda_g;
+        nr.Z[i * 2] *= nr.gain_smooth[i];
+        nr.Z[i * 2 + 1] *= nr.gain_smooth[i];
+    }
+
+    /* IFFT */
+    arm_rfft_fast_f32(&nr.fft->rfft, nr.Z, nr.signal_buf, 1);
+
+    /* Window and sum */
+    #pragma GCC unroll 4
+    // #pragma GCC ivdep
+    for (size_t i = 0; i < nr.fft->N; i++)
+    {
+        nr_buf_add(&nr.out_buf, nr.signal_buf[i] * window[i]);
+    }
+    nr_buf_lsw(&nr.out_buf, nr.fft->overlap);
+
+    /* Copy output to buf */
+    uint32_t write = *nr_out_write;
+    for (size_t i = 0; i < nr.fft->hop; i++)
+    {
+        float val = nr_buf_get_set(&nr.out_buf, 0.0f);
+        nr_out_buf[write] = val * NR_NORM_VAL;
+        write = (write + 1) & 0x1ff;
+    }
+    *nr_out_write = write;
+
+    nr.cur_step = STAGE1;
+    nr.next_step = STAGE1;
+}

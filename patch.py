@@ -27,7 +27,7 @@ patchsets = {
         'stack_p_1': 0x08032dbc,
         'init_data': 0x08032dae,
         'configure': 0x08023c36,
-        'apply_rx_iq_offset': 0x080241ac,
+        # 'apply_rx_iq_offset': 0x080241ac,
         'compress': 0x08024b06,
         'tx_amp': 0x08024b6e,
         'tx_coeff_calc': 0x080237ae,
@@ -56,7 +56,7 @@ patchsets = {
         'configure': 0x0802432c,
         'dma_end': 0x08025b72,
         'remove_iq_offset': 0x0802492c,
-        'apply_rx_iq_offset': 0x0802494c,
+        # 'apply_rx_iq_offset': 0x0802494c,
         'if_shift': 0x08024ac8,
         'tx_if_shift': 0x0802d320,
         'compress': 0x0802539a, # TX
@@ -211,6 +211,14 @@ def get_fn_registers(fn_name, pushed_registers):
     output = subprocess.check_output(shlex.split(f'arm-none-eabi-objdump -S -z --disassemble={fn_name} build/Release/x6100_mcu.elf'))
     collect = False
     registers = {}
+    reg_map = {
+        "sl": "r10",
+        "fp": "r11",
+        "ip": "r12",
+        "sp": "r13",
+        "lr": "r14",
+        "pc": "r15",
+    }
     for line in output.splitlines():
         line = line.decode()
         if line.startswith("Disassembly of section"):
@@ -240,6 +248,8 @@ def get_fn_registers(fn_name, pushed_registers):
             continue
         if parts[2] == 'it' or parts[2] == "itt":
             continue
+        if parts[2] == "bx" and parts[3] == "lr":
+            continue
         cmd = parts[2]
         cmd_args = parts[3]
         cmd_args = cmd_args.split(',')
@@ -251,8 +261,12 @@ def get_fn_registers(fn_name, pushed_registers):
         cmd_args = [x.strip("!{}[] ") for x in cmd_args]
         first_arg = cmd_args[0]
         if cmd == "push":
-            pushed_registers |= set(cmd_args) - registers.keys()
-        if first_arg not in registers:
+            pushed_registers |= {reg_map.get(x, x) for x in cmd_args} - registers.keys()
+        elif cmd == "stmdb" and first_arg == "sp":
+            pushed_registers |= {reg_map.get(x, x) for x in cmd_args[1:]} - registers.keys()
+            continue
+        first_arg = reg_map.get(first_arg, first_arg)
+        if (first_arg not in registers) and (first_arg != "sp"):
             registers[first_arg] = line
     return registers, pushed_registers
 
@@ -261,6 +275,14 @@ def print_used_registers(fn_name="compress"):
     pushed_registers = set()
     registers, pushed_registers = get_fn_registers(fn_name, pushed_registers)
     registers = sorted(registers.items(), key=lambda x: x[0])
+    reg_map = {
+        "sl": "r10",
+        "fp": "r11",
+        "ip": "r12",
+        "sp": "r13",
+        "lr": "r14",
+        "pc": "r15",
+    }
     for k, l in registers:
         saved = k in pushed_registers
         print(k, ["add", "skip"][int(saved)], l)

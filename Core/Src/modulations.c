@@ -1,6 +1,7 @@
 #include "modulations.h"
 #include "external.h"
 #include "stdbool.h"
+#include "math/const.h"
 
 #include "stm32f4xx_hal.h"
 

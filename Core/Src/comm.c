@@ -321,11 +321,11 @@ void process_i2c_cmd(void) {
         }
     }
 
-    // NR-NB
-    if (i2c_regs[x6100_nrthr_nbw_nbthr_nre_nbe] != i2c_raw.nr_nb.i) {
-        i2c_raw.nr_nb.i = i2c_regs[x6100_nrthr_nbw_nbthr_nre_nbe];
-        nr_set_slope(i2c_raw.nr_nb.v.nr_slope);
-    }
+    // // NR-NB
+    // if (i2c_regs[x6100_nrthr_nbw_nbthr_nre_nbe] != i2c_raw.nr_nb.i) {
+    //     i2c_raw.nr_nb.i = i2c_regs[x6100_nrthr_nbw_nbthr_nre_nbe];
+    //     nr_set_slope(i2c_raw.nr_nb.v.nr_slope);
+    // }
 
     if (i2c_regs[x6100_if_shift] != i2c_raw.if_shift) {
         i2c_raw.if_shift = i2c_regs[x6100_if_shift];
