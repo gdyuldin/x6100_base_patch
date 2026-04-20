@@ -5,7 +5,7 @@ It might be used with OEM GUI and with alternative firmware. Some of parameters 
 
 Disclaimer: this code provided as is, use it for your own risk.
 
-Compiled firmwares might be downloaded at [firmwares](./firmwares/) directory.
+Compiled firmwares might be downloaded at [releases](https://github.com/gdyuldin/x6100_base_patch/releases) page (xgf file).
 
 ## Installing
 
