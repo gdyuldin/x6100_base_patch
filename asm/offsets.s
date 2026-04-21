@@ -26,6 +26,8 @@ RX_Q_REGISTER .req                s17
 .equ GET_BATTERY_DATA_MAYBE,      0x0802d780
 .equ AM_FM_DEMOD,                 0x20008148
 .equ DEMOD_AUDIO,                 0x2000834c
+.equ AFTER_OEM_NR_ADDR,           0x08024d88
+.equ AFTER_OEM_AM_MULT_ADDR,      0x08024d2c
 RX_I_REGISTER .req                s16
 RX_Q_REGISTER .req                s22
 

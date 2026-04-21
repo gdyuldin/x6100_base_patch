@@ -55,9 +55,6 @@ typedef struct
     // Smooth gain to apply
     float gain_smooth[NR_MAX_MASK_SIZE];
 
-    // AGC history
-    buf_t agc_scales;
-
     // input buffer
     buf_t in_buf;
 
@@ -95,7 +92,7 @@ typedef struct
 
 static void nr_set_fft_size(uint16_t size);
 
-__STATIC_FORCEINLINE void update_mag_mag2(float *z, int i, float agc_k2);
+__STATIC_FORCEINLINE void update_mag_mag2(float *z, int i);
 __STATIC_FORCEINLINE float soft_clip(float x, const float min, const float ptp, const float ptp_inv);
 
 __STATIC_FORCEINLINE void nr_buf_reset(buf_t *buf);
@@ -144,7 +141,6 @@ int nr_init(void)
 
     nr.buf_mask = ARRAY_SIZE(nr.in_buf.data) - 1;
 
-    nr.agc_scales.cap = ARRAY_SIZE(nr.agc_scales.data);
     nr.in_buf.cap = ARRAY_SIZE(nr.in_buf.data);
     nr.out_buf.cap = ARRAY_SIZE(nr.out_buf.data);
 
@@ -165,9 +161,6 @@ void nr_reset(void) {
     ext_arm_fill_f32(1.0f, nr.gain_smooth, NR_MAX_MASK_SIZE);
     ext_arm_fill_f32(0.0f, nr.prev_mag, NR_MAX_MASK_SIZE);
     ext_arm_fill_f32(0.1f, nr.noise_psd, NR_MAX_MASK_SIZE);
-
-    nr_buf_reset(&nr.agc_scales);
-    ext_arm_fill_f32(100.0f, nr.agc_scales.data, ARRAY_SIZE(nr.agc_scales.data));
 }
 
 void nr_setup_filters(void) {
@@ -243,43 +236,22 @@ void nr_setup_filters(void) {
     nr.cur_step = nr.next_step;
 }
 
-void nr_apply(float sample)
+float nr_apply(float sample)
 {
     USE_OEM_NRE_AS(nre_flag);
-    USE_OEM_MODULATION_AS(pMode);
 
     uint32_t *nr_out_write = (uint32_t *)NR_OUT_WRITE;
     uint32_t *nr_out_read = (uint32_t *)NR_OUT_READ;
     float *nr_out_buf = (float *)NR_OUT_BUF;
 
-    float *agc_scale = (float*)AGC_SCALE;
-    uint8_t *agc_on = (uint8_t*)AGC_ON;
-
     if (*nre_flag == 0) {
         *nr_out_write = 0;
         *nr_out_read = 0;
 
-        nr_buf_reset(&nr.agc_scales);
         nr_buf_reset(&nr.in_buf);
         nr_buf_reset(&nr.out_buf);
-        return;
+        return sample;
     }
-
-    if (*pMode == MOD_NFM) {
-        // Just copy data without NFM
-        nr_out_buf[*nr_out_write] = sample;
-        *nr_out_write = (*nr_out_write + 1) & 0x1ff;
-        return;
-    }
-
-    float agc2;
-    if (!*agc_on) {
-        // *nr.agc_scale_write++ = 100.0f * 100.0f;
-        agc2 = 100000.0f;
-    } else {
-        agc2 = *agc_scale * *agc_scale;
-    }
-    nr_buf_put(&nr.agc_scales, agc2);
 
     // Copy data to buf
     if (isnan(sample)) {
@@ -295,6 +267,14 @@ void nr_apply(float sample)
         step2();
     }
 
+    // Get processed sample
+    if (*nr_out_write == *nr_out_read) {
+        sample = 0.0f;
+    } else {
+        sample = nr_out_buf[*nr_out_read];
+        *nr_out_read = (*nr_out_read + 1) & 511;
+    }
+    return sample;
 }
 
 void nr_pause_update()
@@ -366,12 +346,12 @@ __STATIC_FORCEINLINE void nr_buf_lsw(buf_t *buf, uint32_t shift) {
     buf->w = (buf->w - shift) & nr.buf_mask;
 }
 
-__STATIC_FORCEINLINE void update_mag_mag2(float *z, int i, float agc_k2) {
+__STATIC_FORCEINLINE void update_mag_mag2(float *z, int i) {
 
     // Compute mag^2 and revert AGC
     float real = *z++;
     float imag = *z;
-    float mag2_val = (real * real + imag * imag) * agc_k2;
+    float mag2_val = (real * real + imag * imag);
     float mag_val;
     arm_sqrt_f32(mag2_val, &mag_val);
 
@@ -397,17 +377,6 @@ __STATIC_FORCEINLINE float soft_clip(float x, const float min, const float ptp, 
 __STATIC_FORCEINLINE void step1() {
     if (nr_buf_ready_size(&nr.in_buf) >= nr.fft->N) {
 
-        /* Compute AGC k */
-        float agc_k2 = 0.0f;
-        #pragma GCC unroll 4
-        for (size_t i = 0; i < nr.fft->N; i++)
-        {
-            agc_k2 += nr_buf_get(&nr.agc_scales);
-        }
-        nr_buf_lsr(&nr.agc_scales, nr.fft->overlap);
-
-        agc_k2 = nr.fft->N * nr.fft->N * 10000.0f / agc_k2;
-
         /* Apply window */
         #pragma GCC unroll 4
         for (size_t i = 0; i < nr.fft->N; i++)
@@ -430,13 +399,13 @@ __STATIC_FORCEINLINE void step1() {
             // #pragma GCC unroll 4
             #pragma GCC ivdep
             for (size_t i = nr.filter_low_bin; i < nr.filter_high_bin; i++) {
-                update_mag_mag2(&nr.Z[i<<1], i, agc_k2);
+                update_mag_mag2(&nr.Z[i<<1], i);
             }
         } else {
             // #pragma GCC unroll 4
             #pragma GCC ivdep
             for (size_t i = nr.filter_low_bin; i < nr.filter_high_bin; i++) {
-                update_mag_mag2(&nr.Z[i<<1], i, agc_k2);
+                update_mag_mag2(&nr.Z[i<<1], i);
                 float diff = mag2[i] - nr.noise_psd[i];
                 if (diff > 0) {
                     nr.noise_psd[i] += diff * NR_NOISE_ALPHA_UP;

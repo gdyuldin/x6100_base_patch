@@ -11,7 +11,7 @@
 int nr_init(void);
 void nr_reset(void);
 void nr_setup_filters(void);
-void nr_apply(float sample);
+float nr_apply(float sample);
 
 void nr_pause_update();
 

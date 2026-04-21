@@ -67,7 +67,11 @@ patchsets = {
         'fm_demodulate': 0x08028b56,  # RX
         'am_fm_rx_process': 0x08028b8e,  # RX
         'anf_update': 0x08025bc8,  # RX
-        'noise_reduction': 0x08024d42,
+
+        'noise_reduction': 0x08024bf6,
+        'skip_oem_nr': 0x08024d42,
+        'skip_oem_nr_postprocess': 0x08024da8,
+
         'copy_flow': 0x08033c88,
         'process_i2c_cmd': 0x0802c1a0,
         'skip_am_mult': 0x08024d20,
@@ -238,7 +242,7 @@ def get_fn_registers(fn_name, pushed_registers):
             continue
 
         parts = line.split("\t")
-        if parts[2] == "bl" or parts[2] == "b.w":
+        if parts[2] == "bl" or (parts[2] == "b.w" and "+" not in parts[3]):
             print("!!!bl call:", line)
             sub_fn_name = parts[3].split()[1].strip('<>')
             sub_registers, sub_pushed_registers = get_fn_registers(sub_fn_name, pushed_registers)
@@ -309,13 +313,14 @@ class InjectFunction:
 
 
 class InjectAsm(InjectFunction):
-    def __init__(self, name, inject_addr):
+    def __init__(self, name, inject_addr, desired_len=4):
         self.name = name
         self.inject_addr = inject_addr
         self.insert_code = b""
         self.start_addr = None
         self.wrapper_len = 0
         self.end_addr = 0
+        self.desired_len = desired_len
 
     def setup_wrapper_len(self, asm_o_file):
         pass
@@ -325,7 +330,7 @@ class InjectAsm(InjectFunction):
 
     def setup_insert_code(self, asm_elf):
         self.insert_code = get_patched_section(asm_elf, f".insert_to_{self.name}")
-        assert len(self.insert_code) == 4, f"{self.name} insert is not 4 bytes"
+        assert len(self.insert_code) == self.desired_len, f"{self.name} insert is not {self.desired_len} bytes"
 
 
 class InjectFunctions:
@@ -385,7 +390,8 @@ class InjectFunctions:
             from_sec_name = f"insert_to_{fn.name}"
             from_offset = self.sections[from_sec_name] - self.flash_offset
             # Copy instructions
-            dst[from_offset: from_offset + 4] = fn.insert_code
+            code = fn.insert_code
+            dst[from_offset: from_offset + len(code)] = code
 
 
 def update_filters(dst: bytearray, flash_offset, addr, path, numTaps):
@@ -455,7 +461,10 @@ def main():
         InjectFunction("nr_apply", patchset["noise_reduction"]),  # noise reduction
         InjectFunction("copy_flow", patchset["copy_flow"]),  # copy data samples to flow with changes
         InjectFunction("process_i2c_cmd", patchset["process_i2c_cmd"]),  # handle i2c commands
+
         InjectAsm("skip_am_mult", patchset["skip_am_mult"]),
+        InjectAsm("skip_oem_nr", patchset["skip_oem_nr"]),
+        InjectAsm("skip_oem_nr_postprocess", patchset["skip_oem_nr_postprocess"], desired_len=6),
     ], asm_o_file=o_file, flash_offset=flash_offset, orig_fw_size=len(orig_code), rodata_start=rodata_start, rodata_end=rodata_end)
 
     elf = "asm/helper.elf"

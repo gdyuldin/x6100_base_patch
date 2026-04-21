@@ -600,11 +600,8 @@ _tx_if_shift:
 
 /*
 *** Noise reduction ***
-   08024d76 50 f8 04 0c     ldr.w   r0,[r0,#-0x4]=>DEMOD_AUDIO
-
-r0 is a pointer to sample + 4
-
-
+    08024bf6 04 f5 f4 74     add.w   r4,r4,#0x1e8
+    input signal is in s15
 */
 .section .insert_to_nr_apply, "ax"
 _jump_to_nr_apply_wrapper:
@@ -613,29 +610,43 @@ _jump_to_nr_apply_wrapper:
 .section .nr_apply_wrapper, "ax"
 _nr_apply_wrapper:
 
-  ldr r0, [sp, #0x10]
-  vpush {s0-s15}
-  push {r1-r3, ip}
-  vldr s0, [r0, #-0x4]
-  bl _nr_apply
-  pop {r1-r3, ip}
-  vpop {s0-s15}
+  @ ldr r0, [sp, #0x10]
+  @ vpush {s0-s14}
+  @ push {r1-r3, ip}
 
-  /*
-  vpush {s0-s15}
-  push {r0-r3, r7-r9, ip, fp}
-  // ldr r0,=DEMOD_AUDIO
-  // ADRL R0, DEMOD_AUDIO
-  vldr s0, [r0, #-0x4]
+  push {r0-r3, ip}
+  vpush {s0-s14}
+  VMOV s0, s15
   bl _nr_apply
-  pop {r0-r3, r7-r9, ip, fp}
-  vpop {s0-s15}
-  */
-  b 0x08024d88
+  VMOV s15, s0
+  vpop {s0-s14}
+  pop {r0-r3, ip}
+
+  @ pop {r1-r3, ip}
+  @ vpop {s0-s15}
+  @ Replaced code
+  add.w   r4,r4,#0x1e8
+
+  b _jump_to_nr_apply_wrapper + 4
 
 .section .nr_apply, "ax"
 _nr_apply:
   nop
+
+.section .insert_to_skip_oem_nr, "ax"
+_jump_to_skip_oem_nr_wrapper:
+  b AFTER_OEM_NR_ADDR
+
+/*
+   08024da8 00 2c           cmp     r4,#0x0
+   08024daa 41 f0 f6 83     bne.w   LAB_0802659a
+ */
+.section .insert_to_skip_oem_nr_postprocess, "ax"
+_jump_to_skip_oem_nr_postprocess_wrapper:
+  @ skip instruction
+  NOP
+  NOP
+  NOP
 
 
 /*
@@ -644,7 +655,7 @@ Skip AM demod multiplication
 
 .section .insert_to_skip_am_mult, "ax"
 _skip_am_mult_wrapper:
-  b 0x08024d2c
+  b AFTER_OEM_AM_MULT_ADDR
 
 @ sl -> R10
 @ fp -> R11
