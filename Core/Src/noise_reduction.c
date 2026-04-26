@@ -87,6 +87,8 @@ typedef struct
     // Buffers
     float Z[NR_MAX_NFFT];
     float signal_buf[NR_MAX_NFFT];
+
+    float thr;
 } nr_data_t;
 
 
@@ -164,6 +166,9 @@ void nr_reset(void) {
 }
 
 void nr_setup_filters(void) {
+
+    nr.cur_step = nr.next_step;
+
     USE_OEM_MODULATION_AS(pMode);
 
     struct filter_freqs_t {
@@ -212,28 +217,32 @@ void nr_setup_filters(void) {
         }
     }
 
-    int32_t low_bin = low1 * nr.fft->N / NR_SAMPLING_RATE - 2;
-    int32_t high_bin = high1 * nr.fft->N / NR_SAMPLING_RATE + 2;
 
-    nr.filter_low_bin = MAX(low_bin, 1);
-    nr.filter_high_bin = MIN(high_bin, NR_MAX_MASK_SIZE - 1);
-    nr.filter_high_bin = MAX(nr.filter_high_bin, nr.filter_low_bin + 2);
+    if (nr.cur_step != STAGE2) {
+        int32_t low_bin = low1 * nr.fft->N / NR_SAMPLING_RATE - 2;
+        int32_t high_bin = high1 * nr.fft->N / NR_SAMPLING_RATE + 2;
+
+        nr.filter_low_bin = MAX(low_bin, 1);
+        nr.filter_high_bin = MIN(high_bin, NR_MAX_MASK_SIZE - 1);
+        nr.filter_high_bin = MAX(nr.filter_high_bin, nr.filter_low_bin + 2);
+    }
 
     // Setup parameters
     float *nrthr = (float *)NR_THR_F;
-    float depth = *nrthr / 30.0f;
-    nr.alpha = 1.2f + (depth * 4.0f);
-    // float beta = 0.1f - (depth * 0.08f);
-    // beta = MAX(beta, 0.01f);
-    nr.beta = 0.15f / pow10f_c(depth);
-    nr.lambda_g = 0.5f + (depth * 0.2f);
-    nr.lambda_g = (1.0f - MIN(nr.lambda_g, 0.7f));
+    if (nr.thr != *nrthr) {
+        nr.thr = *nrthr;
+        float depth = nr.thr / 30.0f;
+        nr.alpha = 1.2f + (depth * 4.0f);
+        // float beta = 0.1f - (depth * 0.08f);
+        // beta = MAX(beta, 0.01f);
+        nr.beta = 0.15f / pow10f_c(depth);
+        nr.lambda_g = 0.5f + (depth * 0.2f);
+        nr.lambda_g = (1.0f - MIN(nr.lambda_g, 0.7f));
 
-    // Soft clip parameters
-    nr.ptp = 1.0f - nr.beta;
-    nr.ptp_inv = 1.0f / nr.ptp;
-
-    nr.cur_step = nr.next_step;
+        // Soft clip parameters
+        nr.ptp = 1.0f - nr.beta;
+        nr.ptp_inv = 1.0f / nr.ptp;
+    }
 }
 
 float nr_apply(float sample)
@@ -257,13 +266,18 @@ float nr_apply(float sample)
     if (isnan(sample)) {
         sample = 0.0f;
     } else {
-        sample = CLIP(sample, -2.0f, 2.0f);
+        sample *= 1e3f;
     }
     nr_buf_put(&nr.in_buf, sample);
 
     if (nr.cur_step == STAGE1) {
-        step1();
+        if (nr_buf_ready_size(&nr.in_buf) >= nr.fft->N) {
+            step1();
+            nr.next_step = STAGE2;
+        }
     } else {
+        nr.cur_step = STAGE1;
+        nr.next_step = STAGE1;
         step2();
     }
 
@@ -273,6 +287,11 @@ float nr_apply(float sample)
     } else {
         sample = nr_out_buf[*nr_out_read];
         *nr_out_read = (*nr_out_read + 1) & 511;
+        if (isnan(sample)) {
+            sample = 0.0f;
+        } else {
+            sample *= 1e-3f;
+        }
     }
     return sample;
 }
@@ -375,47 +394,43 @@ __STATIC_FORCEINLINE float soft_clip(float x, const float min, const float ptp, 
 }
 
 __STATIC_FORCEINLINE void step1() {
-    if (nr_buf_ready_size(&nr.in_buf) >= nr.fft->N) {
+    /* Apply window */
+    #pragma GCC unroll 4
+    for (size_t i = 0; i < nr.fft->N; i++)
+    {
+        float v = nr_buf_get(&nr.in_buf);
+        nr.signal_buf[i] = window[i] * v;
+    }
+    nr_buf_lsr(&nr.in_buf, nr.fft->overlap);
 
-        /* Apply window */
-        #pragma GCC unroll 4
-        for (size_t i = 0; i < nr.fft->N; i++)
-        {
-            nr.signal_buf[i] = window[i] * nr_buf_get(&nr.in_buf);
+    /* FFT */
+    arm_rfft_fast_f32(&nr.fft->rfft, nr.signal_buf, nr.Z, 0);
+
+    nr.Z[0] = 0.0f;
+    nr.Z[1] = 0.0f;
+
+    /* Compute mag squared, update_noise_profile */
+    // if (nr.profile_update_delay != 0) {
+    if (__builtin_expect(nr.profile_update_delay != 0, 0)) {
+        nr.profile_update_delay--;
+
+        // #pragma GCC unroll 4
+        #pragma GCC ivdep
+        for (size_t i = nr.filter_low_bin; i < nr.filter_high_bin; i++) {
+            update_mag_mag2(&nr.Z[i<<1], i);
         }
-        nr_buf_lsr(&nr.in_buf, nr.fft->overlap);
-
-        /* FFT */
-        arm_rfft_fast_f32(&nr.fft->rfft, nr.signal_buf, nr.Z, 0);
-
-        nr.Z[0] = 0.0f;
-        nr.Z[1] = 0.0f;
-
-        /* Compute mag squared, update_noise_profile */
-        // if (nr.profile_update_delay != 0) {
-        if (__builtin_expect(nr.profile_update_delay != 0, 0)) {
-            nr.profile_update_delay--;
-
-            // #pragma GCC unroll 4
-            #pragma GCC ivdep
-            for (size_t i = nr.filter_low_bin; i < nr.filter_high_bin; i++) {
-                update_mag_mag2(&nr.Z[i<<1], i);
-            }
-        } else {
-            // #pragma GCC unroll 4
-            #pragma GCC ivdep
-            for (size_t i = nr.filter_low_bin; i < nr.filter_high_bin; i++) {
-                update_mag_mag2(&nr.Z[i<<1], i);
-                float diff = mag2[i] - nr.noise_psd[i];
-                if (diff > 0) {
-                    nr.noise_psd[i] += diff * NR_NOISE_ALPHA_UP;
-                } else {
-                    nr.noise_psd[i] += diff * NR_NOISE_ALPHA_DOWN;
-                }
+    } else {
+        // #pragma GCC unroll 4
+        #pragma GCC ivdep
+        for (size_t i = nr.filter_low_bin; i < nr.filter_high_bin; i++) {
+            update_mag_mag2(&nr.Z[i<<1], i);
+            float diff = mag2[i] - nr.noise_psd[i];
+            if (diff > 0) {
+                nr.noise_psd[i] += diff * NR_NOISE_ALPHA_UP;
+            } else {
+                nr.noise_psd[i] += diff * NR_NOISE_ALPHA_DOWN;
             }
         }
-
-        nr.next_step = STAGE2;
     }
 }
 
@@ -429,7 +444,7 @@ __STATIC_FORCEINLINE void step2() {
     // #pragma GCC ivdep
     for (size_t i = nr.filter_low_bin; i < nr.filter_high_bin; i++)
     {
-        float gain = (mag2_avg[i] - nr.alpha * nr.noise_psd[i]) / (mag2_avg[i] + 1e-15f);
+        float gain = 1.0f - (nr.alpha * nr.noise_psd[i]) / (mag2_avg[i] + 1e-15f);
         // gain = MAX(gain, beta);
         // gain = MIN(gain, 1.0f);
         // gain = CLIP(gain, beta, 1.0f);
@@ -437,12 +452,14 @@ __STATIC_FORCEINLINE void step2() {
         // gain = sqrtf(gain);
         // arm_sqrt_f32(gain, &gain);
         __ASM("VSQRT.F32 %0,%1" : "=t"(gain) : "t"(gain));
-        // freq smoothing
-        float g05 = gain * 0.5f;
-        float g025 = gain * 0.25f;
-        raw_gains[i] += g05;
-        raw_gains[i - 1] += g025;
-        raw_gains[i + 1] += g025;
+        if (!isnan(gain)) {
+            // freq smoothing
+            float g05 = gain * 0.5f;
+            float g025 = gain * 0.25f;
+            raw_gains[i] += g05;
+            raw_gains[i - 1] += g025;
+            raw_gains[i + 1] += g025;
+        }
     }
 
     /* Temporal smoothing, applying gain */
@@ -476,7 +493,4 @@ __STATIC_FORCEINLINE void step2() {
         write = (write + 1) & 0x1ff;
     }
     *nr_out_write = write;
-
-    nr.cur_step = STAGE1;
-    nr.next_step = STAGE1;
 }

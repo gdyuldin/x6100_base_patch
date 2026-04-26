@@ -6,7 +6,7 @@
 
 
 void if_shift_init(void);
-void if_shift(void);
+void if_shift_rx(void);
 
 void if_shift_setup(bool on, int32_t freq);
 

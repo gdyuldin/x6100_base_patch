@@ -12,7 +12,6 @@
 struct {
     bool on;
     int32_t freq;
-    float angle;
     int32_t step;
     int32_t i;
 } state __attribute((section(".ccmram")));
@@ -20,7 +19,6 @@ struct {
 CCMRAM float sin_1000_table_ccm[ARRAY_SIZE(sin_1000_table)];
 
 void if_shift_init(void) {
-    state.angle = 0.0f;
     state.step = 0;
     state.i = 0;
     state.on = false;
@@ -32,7 +30,7 @@ void if_shift_init(void) {
  * IF shift
  */
 
-void if_shift(void) {
+void if_shift_rx(void) {
 
     if (!state.on || (state.step == 0)) {
         return;
@@ -62,14 +60,15 @@ void if_shift(void) {
         iq[0] = i;
         iq[1] = q;
 
-        iq += 2;
-        counter--;
         sin_k += state.step;
         if (__builtin_expect(sin_k >= LUT_SIZE, 0)) {
             sin_k -= LUT_SIZE;
         } else if (__builtin_expect(sin_k < 0, 0)) {
             sin_k += LUT_SIZE;
         }
+
+        iq += 2;
+        counter--;
     }
     state.i = sin_k;
 }
@@ -81,7 +80,7 @@ void if_shift_setup(bool on, int32_t freq)
     state.step = freq * LUT_SIZE / 100000;
 }
 
-int32_t tx_if_shift(int32_t lo_freq_shift) {
+int32_t if_shift_tx(int32_t lo_freq_shift) {
     if (state.on) {
         lo_freq_shift += state.freq;
     }

@@ -158,6 +158,15 @@ uint32_t copy_flow(float *p_Dst) {
     uint32_t avg_freq;
 
     flow.info.flow_seq_n = 0xf;
+
+    // float v = get_max_sig();
+    // union {
+    //     float f;
+    //     uint32_t i;
+    // } fuint = {v};
+    // flow.info._pad2 = fuint.i;
+
+
     // flow.info.pad = TIM2->ARR;
     // TIM2->ARR = 4000 / 5;
 

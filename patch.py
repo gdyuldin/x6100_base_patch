@@ -57,8 +57,8 @@ patchsets = {
         'dma_end': 0x08025b72,
         'remove_iq_offset': 0x0802492c,
         # 'apply_rx_iq_offset': 0x0802494c,
-        'if_shift': 0x08024ac8,
-        'tx_if_shift': 0x0802d320,
+        'if_shift_rx': 0x08024ac8,
+        'if_shift_tx': 0x0802d320,
         'compress': 0x0802539a, # TX
         'am_modulation': 0x08028608,  # TX
         'fm_modulate': 0x08028634,  # TX
@@ -445,9 +445,9 @@ def main():
         InjectFunction("configure", patchset["configure"]),  # configure state at start of DMA handler
         InjectFunction("dma_end", patchset["dma_end"]),  # code for end of the DMA handler
         InjectFunction("remove_iq_offset", patchset["remove_iq_offset"]),  # Remove IQ offset from incoming data
-        InjectFunction("if_shift", patchset["if_shift"]),  # Apply IF shift
+        InjectFunction("if_shift_rx", patchset["if_shift_rx"]),  # Apply IF shift
 
-        InjectFunction("tx_if_shift", patchset["tx_if_shift"]),  # Handle IF shift on TX
+        InjectFunction("if_shift_tx", patchset["if_shift_tx"]),  # Handle IF shift on TX
         InjectFunction("compress", patchset["compress"]),  # compress, limit TX signal
         InjectFunction("am_modulation", patchset["am_modulation"]),  # soft limit AM signal and modulate
 

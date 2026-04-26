@@ -547,24 +547,24 @@ _process_i2c_cmd:
    08024ac8 9d f8 07 31     ldrb.w  r3,[sp,#local_79] ([sp,#0x107])
 
 */
-.section .insert_to_if_shift, "ax"
-_jump_to_if_shift_wrapper:
-  b _if_shift_wrapper
+.section .insert_to_if_shift_rx, "ax"
+_jump_to_if_shift_rx_wrapper:
+  b _if_shift_rx_wrapper
 
-.section .if_shift_wrapper, "ax"
-_if_shift_wrapper:
+.section .if_shift_rx_wrapper, "ax"
+_if_shift_rx_wrapper:
   push {r0-r3}
   vpush {s11-s15}
-  bl _if_shift
+  bl _if_shift_rx
   vpop {s11-s15}
   pop {r0-r3}
 
   ldrb.w r3, [sp,#0x107]  // Call original code
 
-  b _jump_to_if_shift_wrapper + 4
+  b _jump_to_if_shift_rx_wrapper + 4
 
-.section .if_shift, "ax"
-_if_shift:
+.section .if_shift_rx, "ax"
+_if_shift_rx:
   nop
 
 
@@ -576,16 +576,16 @@ _if_shift:
    0802d322 2a e0           b       0x0802d37a
 
 */
-.section .insert_to_tx_if_shift, "ax"
-_jump_to_tx_if_shift_wrapper:
-  b _tx_if_shift_wrapper
+.section .insert_to_if_shift_tx, "ax"
+_jump_to_if_shift_tx_wrapper:
+  b _if_shift_tx_wrapper
 
-.section .tx_if_shift_wrapper, "ax"
-_tx_if_shift_wrapper:
+.section .if_shift_tx_wrapper, "ax"
+_if_shift_tx_wrapper:
   // Save r0, move r3 to fn arg
   push {r0, r2}
   mov r0, r3
-  bl _tx_if_shift
+  bl _if_shift_tx
   // Move result to r3, restore r0
   mov r3, r0
   pop {r0, r2}
@@ -593,8 +593,8 @@ _tx_if_shift_wrapper:
   str r3, [r7, #0x14] // Call original code
   b 0x0802d37a
 
-.section .tx_if_shift, "ax"
-_tx_if_shift:
+.section .if_shift_tx, "ax"
+_if_shift_tx:
   nop
 
 

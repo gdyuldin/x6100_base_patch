@@ -109,8 +109,8 @@ int main(void)
     anf_update();
     copy_flow(&a);
     process_i2c_cmd();
-    if_shift();
-    tx_if_shift(1);
+    if_shift_rx();
+    if_shift_tx(1);
     a = am_modulation(a, b, 1.0f);
     b = fm_modulate(a);
     nr_apply(a);
