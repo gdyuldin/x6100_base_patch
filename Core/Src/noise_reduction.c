@@ -26,7 +26,7 @@ typedef struct {
     uint32_t cap;
     uint32_t w;
     uint32_t r;
-} buf_t;
+} iq_dline_t;
 
 typedef struct {
     // FFT
@@ -56,10 +56,10 @@ typedef struct
     float gain_smooth[NR_MAX_MASK_SIZE];
 
     // input buffer
-    buf_t in_buf;
+    iq_dline_t in_buf;
 
     // Output buffer
-    buf_t out_buf;
+    iq_dline_t out_buf;
 
     uint32_t buf_mask;
 
@@ -97,17 +97,17 @@ static void nr_set_fft_size(uint16_t size);
 __STATIC_FORCEINLINE void update_mag_mag2(float *z, int i);
 __STATIC_FORCEINLINE float soft_clip(float x, const float min, const float ptp, const float ptp_inv);
 
-__STATIC_FORCEINLINE void nr_buf_reset(buf_t *buf);
-__STATIC_FORCEINLINE void nr_buf_put(buf_t *buf, float val);
+__STATIC_FORCEINLINE void nr_buf_reset(iq_dline_t *buf);
+__STATIC_FORCEINLINE void nr_buf_put(iq_dline_t *buf, float val);
 // Add a value to already stored and move write pointer
-__STATIC_FORCEINLINE void nr_buf_add(buf_t *buf, float val);
-__STATIC_FORCEINLINE float nr_buf_get(buf_t *buf);
-__STATIC_FORCEINLINE float nr_buf_get_set(buf_t *buf, float new_val);
-__STATIC_FORCEINLINE uint32_t nr_buf_ready_size(buf_t *buf);
+__STATIC_FORCEINLINE void nr_buf_add(iq_dline_t *buf, float val);
+__STATIC_FORCEINLINE float nr_buf_get(iq_dline_t *buf);
+__STATIC_FORCEINLINE float nr_buf_get_set(iq_dline_t *buf, float new_val);
+__STATIC_FORCEINLINE uint32_t nr_buf_ready_size(iq_dline_t *buf);
 // Left shift read
-__STATIC_FORCEINLINE void nr_buf_lsr(buf_t *buf, uint32_t shift);
+__STATIC_FORCEINLINE void nr_buf_lsr(iq_dline_t *buf, uint32_t shift);
 // Left shift write
-__STATIC_FORCEINLINE void nr_buf_lsw(buf_t *buf, uint32_t shift);
+__STATIC_FORCEINLINE void nr_buf_lsw(iq_dline_t *buf, uint32_t shift);
 
 // Split processing to fit performance
 __STATIC_FORCEINLINE void step1();
@@ -169,62 +169,77 @@ void nr_setup_filters(void) {
 
     nr.cur_step = nr.next_step;
 
-    USE_OEM_MODULATION_AS(pMode);
-
-    struct filter_freqs_t {
-        int32_t low;
-        int32_t high;
-    };
-
-    struct filter_freqs_t *filter_frequencies = (struct filter_freqs_t *)FILTER_FREQUENCIES;
-
-    uint32_t low1 = ABS(filter_frequencies[0].low);
-    uint32_t low2 = ABS(filter_frequencies[1].low);
-    uint32_t high1 = ABS(filter_frequencies[0].high);
-    uint32_t high2 = ABS(filter_frequencies[1].high);
-    low1 = MIN(low1, low2);
-    high1 = MAX(high1, high2);
-
-    if ((*pMode == MOD_AM) || (*pMode == MOD_NFM)) {
-        low1 = 50;
-    };
-
-    if ((high1 - low1) > 3200) {
-        if (nr.fft->N != 256) {
-            nr_set_fft_size(256);
-            for (uint16_t i = 1; i < nr.fft->N - 1; i++)
-            {
-                nr.prev_mag[i] = (nr.prev_mag[i * 2] + nr.prev_mag[i * 2 + 1]) * 0.25f;  // 1 / (2 + 2)
-                nr.noise_psd[i] = (nr.noise_psd[i * 2] + nr.noise_psd[i * 2 + 1]) * 0.125f;  // 1 / (4 + 4)
-                nr.gain_smooth[i] = (nr.gain_smooth[i * 2] + nr.gain_smooth[i * 2 + 1]) * 0.5f;
-            }
-        }
-    } else {
-        if (nr.fft->N != 512) {
-            nr_set_fft_size(512);
-            for (uint16_t i = (nr.fft->N / 2) - 1; i > 0; i--)
-            {
-                float prev_mag = nr.prev_mag[i] * 2.0f;
-                float noise_psd = nr.noise_psd[i] * 4.0f;
-                float gain_smooth = nr.gain_smooth[i];
-                nr.prev_mag[2*i] = prev_mag;
-                nr.prev_mag[2*i + 1] = prev_mag;
-                nr.noise_psd[2 * i] = noise_psd;
-                nr.noise_psd[2 * i + 1] = noise_psd;
-                nr.gain_smooth[2 * i] = gain_smooth;
-                nr.gain_smooth[2 * i + 1] = gain_smooth;
-            }
-        }
-    }
-
-
     if (nr.cur_step != STAGE2) {
+
+        USE_OEM_MODULATION_AS(pMode);
+
+        struct filter_freqs_t {
+            int32_t low;
+            int32_t high;
+        };
+
+        struct filter_freqs_t *filter_frequencies = (struct filter_freqs_t *)FILTER_FREQUENCIES;
+
+        uint32_t low1 = ABS(filter_frequencies[0].low);
+        uint32_t low2 = ABS(filter_frequencies[1].low);
+        uint32_t high1 = ABS(filter_frequencies[0].high);
+        uint32_t high2 = ABS(filter_frequencies[1].high);
+        low1 = MIN(low1, low2);
+        high1 = MAX(high1, high2);
+
+        if ((*pMode == MOD_AM) || (*pMode == MOD_NFM)) {
+            low1 = 50;
+        };
+
+        if ((high1 - low1) > 3200) {
+            if (nr.fft->N != 256) {
+                nr_set_fft_size(256);
+                for (uint16_t i = 1; i < nr.fft->N - 1; i++)
+                {
+                    nr.prev_mag[i] = (nr.prev_mag[i * 2] + nr.prev_mag[i * 2 + 1]) * 0.25f;  // 1 / (2 + 2)
+                    nr.noise_psd[i] = (nr.noise_psd[i * 2] + nr.noise_psd[i * 2 + 1]) * 0.125f;  // 1 / (4 + 4)
+                    nr.gain_smooth[i] = (nr.gain_smooth[i * 2] + nr.gain_smooth[i * 2 + 1]) * 0.5f;
+                }
+            }
+        } else {
+            if (nr.fft->N != 512) {
+                nr_set_fft_size(512);
+                for (uint16_t i = (nr.fft->N / 2) - 1; i > 0; i--)
+                {
+                    float prev_mag = nr.prev_mag[i] * 2.0f;
+                    float noise_psd = nr.noise_psd[i] * 4.0f;
+                    float gain_smooth = nr.gain_smooth[i];
+                    nr.prev_mag[2 * i] = prev_mag;
+                    nr.prev_mag[2 * i + 1] = prev_mag;
+                    nr.noise_psd[2 * i] = noise_psd;
+                    nr.noise_psd[2 * i + 1] = noise_psd;
+                    nr.gain_smooth[2 * i] = gain_smooth;
+                    nr.gain_smooth[2 * i + 1] = gain_smooth;
+                }
+            }
+        }
+
+
+
         int32_t low_bin = low1 * nr.fft->N / NR_SAMPLING_RATE - 2;
         int32_t high_bin = high1 * nr.fft->N / NR_SAMPLING_RATE + 2;
 
-        nr.filter_low_bin = MAX(low_bin, 1);
-        nr.filter_high_bin = MIN(high_bin, NR_MAX_MASK_SIZE - 1);
-        nr.filter_high_bin = MAX(nr.filter_high_bin, nr.filter_low_bin + 2);
+        low_bin = MAX(low_bin, 1);
+        high_bin = MIN(high_bin, NR_MAX_MASK_SIZE - 1);
+        high_bin = MAX(high_bin, low_bin + 2);
+
+        if (low_bin > nr.filter_low_bin) {
+            ext_arm_fill_f32(0.0f, nr.prev_mag, low_bin);
+            ext_arm_fill_f32(0.1f, nr.noise_psd, low_bin);
+            ext_arm_fill_f32(1.0f, nr.gain_smooth, low_bin);
+        }
+        if (high_bin < nr.filter_high_bin) {
+            ext_arm_fill_f32(0.0f, nr.prev_mag + high_bin, ARRAY_SIZE(nr.prev_mag) - high_bin);
+            ext_arm_fill_f32(0.1f, nr.noise_psd + high_bin, ARRAY_SIZE(nr.prev_mag) - high_bin);
+            ext_arm_fill_f32(1.0f, nr.gain_smooth + high_bin, ARRAY_SIZE(nr.prev_mag) - high_bin);
+        }
+        nr.filter_low_bin = low_bin;
+        nr.filter_high_bin = high_bin;
     }
 
     // Setup parameters
@@ -322,46 +337,46 @@ static void nr_set_fft_size(uint16_t size) {
 }
 
 
-__STATIC_FORCEINLINE void nr_buf_reset(buf_t *buf) {
+__STATIC_FORCEINLINE void nr_buf_reset(iq_dline_t *buf) {
     buf->w = 0;
     buf->r = 0;
 }
 
-__STATIC_FORCEINLINE void nr_buf_put(buf_t *buf, float val) {
+__STATIC_FORCEINLINE void nr_buf_put(iq_dline_t *buf, float val) {
     buf->data[buf->w] = val;
     buf->w = (buf->w + 1) & nr.buf_mask;
 }
 
-__STATIC_FORCEINLINE void nr_buf_add(buf_t *buf, float val) {
+__STATIC_FORCEINLINE void nr_buf_add(iq_dline_t *buf, float val) {
     buf->data[buf->w] += val;
     buf->w = (buf->w + 1) & nr.buf_mask;
 }
 
-__STATIC_FORCEINLINE float nr_buf_get(buf_t *buf) {
+__STATIC_FORCEINLINE float nr_buf_get(iq_dline_t *buf) {
     float val = buf->data[buf->r];
     buf->r = (buf->r + 1) & nr.buf_mask;
     return val;
 }
 
-__STATIC_FORCEINLINE float nr_buf_get_set(buf_t *buf, float new_val) {
+__STATIC_FORCEINLINE float nr_buf_get_set(iq_dline_t *buf, float new_val) {
     float val = buf->data[buf->r];
     buf->data[buf->r] = new_val;
     buf->r = (buf->r + 1) & nr.buf_mask;
     return val;
 }
 
-__STATIC_FORCEINLINE uint32_t nr_buf_ready_size(buf_t *buf) {
+__STATIC_FORCEINLINE uint32_t nr_buf_ready_size(iq_dline_t *buf) {
     if (buf->r == buf->w) {
         return buf->cap;
     }
     return (buf->w - buf->r) & nr.buf_mask;
 }
 
-__STATIC_FORCEINLINE void nr_buf_lsr(buf_t *buf, uint32_t shift) {
+__STATIC_FORCEINLINE void nr_buf_lsr(iq_dline_t *buf, uint32_t shift) {
     buf->r = (buf->r - shift) & nr.buf_mask;
 }
 
-__STATIC_FORCEINLINE void nr_buf_lsw(buf_t *buf, uint32_t shift) {
+__STATIC_FORCEINLINE void nr_buf_lsw(iq_dline_t *buf, uint32_t shift) {
     buf->w = (buf->w - shift) & nr.buf_mask;
 }
 
@@ -370,7 +385,7 @@ __STATIC_FORCEINLINE void update_mag_mag2(float *z, int i) {
     // Compute mag^2 and revert AGC
     float real = *z++;
     float imag = *z;
-    float mag2_val = (real * real + imag * imag);
+    float mag2_val = real * real + imag * imag;
     float mag_val;
     arm_sqrt_f32(mag2_val, &mag_val);
 

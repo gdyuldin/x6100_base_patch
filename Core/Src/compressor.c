@@ -5,6 +5,7 @@
 #include "offsets.h"
 
 #include "noise_reduction.h"
+#include "noise_blanker.h"
 
 #include "math.h"
 #include "stdbool.h"
@@ -487,6 +488,7 @@ __attribute__((optimize("O1"))) void init_data(void) {
 
     // Noise reduction init
     nr_init();
+    nb_init();
 }
 
 

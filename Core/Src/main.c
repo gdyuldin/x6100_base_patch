@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include "compressor.h"
 #include "noise_reduction.h"
+#include "noise_blanker.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -114,6 +115,7 @@ int main(void)
     a = am_modulation(a, b, 1.0f);
     b = fm_modulate(a);
     nr_apply(a);
+    nb_apply((cfloat_t){a, b});
     int32_t ai;
     remove_iq_offset(&ai);
     /* USER CODE BEGIN 3 */

@@ -657,6 +657,45 @@ Skip AM demod multiplication
 _skip_am_mult_wrapper:
   b AFTER_OEM_AM_MULT_ADDR
 
+
+/**
+Noise blanker
+
+   08024962 8a ed 00 ba     vstr.32 s22,[r10]=>MEGA_STRUCT.iq_data.i_f
+   08024966 8b ed 00 8a     vstr.32 s16,[r11]=>MEGA_STRUCT.iq_data.q
+
+ */
+
+.section .insert_to_nb_apply, "ax"
+_jump_to_nb_apply_wrapper:
+  b _nb_apply_wrapper
+
+.section .nb_apply_wrapper, "ax"
+_nb_apply_wrapper:
+  push {r0-r3, r12}
+  vpush {s11-s15}
+  vpush {s0-s1}
+
+  vmov s0, s16
+  vmov s1, s22
+  bl _nb_apply
+  vmov s16, s0
+  vmov s22, s1
+
+  vpop {s0-s1}
+  vpop {s11-s15}
+  pop {r0-r3, r12}
+
+  vstr.32 s22,[r10]  // Call original instruction
+
+  b _jump_to_nb_apply_wrapper + 4
+
+.section .nb_apply, "ax"
+_nb_apply:
+  nop
+
+
+
 @ sl -> R10
 @ fp -> R11
 @ ip -> R12

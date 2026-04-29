@@ -64,7 +64,6 @@ I2C_REG_T({
     uint8_t nb_level;
     uint8_t nre : 1;
     uint8_t nbe : 1;
-    uint8_t nr_slope: 4;  // To control NR slope
 }) x6100_reg_nrthr_nbw_nbthr_nre_nbe_t;
 
 

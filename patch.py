@@ -72,6 +72,8 @@ patchsets = {
         'skip_oem_nr': 0x08024d42,
         'skip_oem_nr_postprocess': 0x08024da8,
 
+        'noise_blanker': 0x08024962,
+
         'copy_flow': 0x08033c88,
         'process_i2c_cmd': 0x0802c1a0,
         'skip_am_mult': 0x08024d20,
@@ -240,6 +242,8 @@ def get_fn_registers(fn_name, pushed_registers):
             continue
         if "\t.short\t" in line:
             continue
+        if "\t.byte\t" in line:
+            continue
 
         parts = line.split("\t")
         if parts[2] == "bl" or (parts[2] == "b.w" and "+" not in parts[3]):
@@ -306,6 +310,7 @@ class InjectFunction:
     def print_used_registers(self):
         print(f"Registers for {self.name}")
         print_used_registers(fn_name=self.name)
+        print("")
 
     def setup_insert_code(self, asm_elf):
         self.insert_code = get_patched_section(asm_elf, f".insert_to_{self.name}")
@@ -459,6 +464,7 @@ def main():
         InjectFunction("am_fm_rx_process", patchset["am_fm_rx_process"]),  # process AM/FM rx (sql, dc blocker)
         InjectFunction("anf_update", patchset["anf_update"]),  # update notch filter params
         InjectFunction("nr_apply", patchset["noise_reduction"]),  # noise reduction
+        InjectFunction("nb_apply", patchset["noise_blanker"]),  # noise blanker
         InjectFunction("copy_flow", patchset["copy_flow"]),  # copy data samples to flow with changes
         InjectFunction("process_i2c_cmd", patchset["process_i2c_cmd"]),  # handle i2c commands
 

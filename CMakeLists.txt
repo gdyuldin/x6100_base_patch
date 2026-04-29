@@ -57,6 +57,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/compressor.c
     Core/Src/iirdecim.c
     Core/Src/noise_reduction.c
+    Core/Src/noise_blanker.c
     Core/Src/ring_buf.c
     Core/Src/modulations.c
     Core/Src/utils.c
