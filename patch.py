@@ -531,7 +531,7 @@ def main():
         dst[hpf_addr:hpf_addr+l] = data
 
 
-    ver = "r10"
+    ver = "r11"
     build_time = ver.encode() + bytes(11 - len(ver))
     assert len(build_time) < 12
     build_time_addr = patchset['build_time'] - flash_offset
