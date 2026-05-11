@@ -486,6 +486,14 @@ __attribute__((optimize("O1"))) void init_data(void) {
     if_shift_init();
     fm_demod_init();
 
+    // Init frequencies for NR correct initialization
+    struct filter_freqs_t *filter_frequencies = (struct filter_freqs_t *)FILTER_FREQUENCIES;
+
+    filter_frequencies[0].low = 300;
+    filter_frequencies[1].low = 300;
+    filter_frequencies[0].high = 3000;
+    filter_frequencies[1].high = 3000;
+
     // Noise reduction init
     nr_init();
     nb_init();
@@ -667,6 +675,7 @@ void configure(void) {
     USE_OEM_I2C_REGS_AS(i2c_regs);
 
     reset_filters_states_on_changes();
+    nr_prepare();
 
     // Reset coefficients on SWR scan
     bool swr_scan = i2c_regs[x6100_sple_atue_trx] & SWR_SCAN;
@@ -696,7 +705,6 @@ void configure(void) {
             start_peak_filter(true);
         }
     }
-    nr_setup_filters();
 
     // bool *gpiof = (bool*)0x200001fa;
     // bool *gpiof2 = (bool*)0x2000020e;

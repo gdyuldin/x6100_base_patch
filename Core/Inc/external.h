@@ -33,6 +33,13 @@ enum __attribute__((__packed__)) mod_t {
 };
 
 
+// Frequencies for RX filters
+struct filter_freqs_t {
+    int32_t low;
+    int32_t high;
+};
+
+
 /**
  * External functions implemented in FW
  */

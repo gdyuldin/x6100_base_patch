@@ -213,7 +213,7 @@ def align(addr, val=4):
     return int(np.ceil(addr / val) * val)
 
 
-def get_fn_registers(fn_name, pushed_registers):
+def get_fn_registers(fn_name):
     output = subprocess.check_output(shlex.split(f'arm-none-eabi-objdump -S -z --disassemble={fn_name} build/Release/x6100_mcu.elf'))
     collect = False
     registers = {}
@@ -249,8 +249,8 @@ def get_fn_registers(fn_name, pushed_registers):
         if parts[2] == "bl" or (parts[2] == "b.w" and "+" not in parts[3]):
             print("!!!bl call:", line)
             sub_fn_name = parts[3].split()[1].strip('<>')
-            sub_registers, sub_pushed_registers = get_fn_registers(sub_fn_name, pushed_registers)
-            registers.update({k: f"{sub_fn_name} {v}" for k, v in sub_registers.items() if k not in sub_pushed_registers})
+            sub_registers = get_fn_registers(sub_fn_name)
+            registers.update({k: f"{sub_fn_name} {v}" for k, v in sub_registers.items()})
             continue
         if len(parts) < 4:
             continue
@@ -268,20 +268,20 @@ def get_fn_registers(fn_name, pushed_registers):
             continue
         cmd_args = [x.strip("!{}[] ") for x in cmd_args]
         first_arg = cmd_args[0]
-        if cmd == "push":
-            pushed_registers |= {reg_map.get(x, x) for x in cmd_args} - registers.keys()
-        elif cmd == "stmdb" and first_arg == "sp":
-            pushed_registers |= {reg_map.get(x, x) for x in cmd_args[1:]} - registers.keys()
-            continue
+        # if cmd == "push":
+        #     continue
+        #     pushed_registers |= {reg_map.get(x, x) for x in cmd_args} - registers.keys()
+        # elif cmd == "stmdb" and first_arg == "sp":
+        #     pushed_registers |= {reg_map.get(x, x) for x in cmd_args[1:]} - registers.keys()
+        #     continue
         first_arg = reg_map.get(first_arg, first_arg)
         if (first_arg not in registers) and (first_arg != "sp"):
             registers[first_arg] = line
-    return registers, pushed_registers
+    return registers
 
 
 def print_used_registers(fn_name="compress"):
-    pushed_registers = set()
-    registers, pushed_registers = get_fn_registers(fn_name, pushed_registers)
+    registers = get_fn_registers(fn_name)
     registers = sorted(registers.items(), key=lambda x: x[0])
     reg_map = {
         "sl": "r10",
@@ -292,8 +292,7 @@ def print_used_registers(fn_name="compress"):
         "pc": "r15",
     }
     for k, l in registers:
-        saved = k in pushed_registers
-        print(k, ["add", "skip"][int(saved)], l)
+        print(k, l)
 
 
 class InjectFunction:

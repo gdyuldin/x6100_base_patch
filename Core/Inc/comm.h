@@ -27,6 +27,11 @@ typedef enum
     x6100_cmplevel_cmpe = 25,
     x6100_if_shift = 35,
     x6100_tx_filter = 38,
+
+    x6100_filter1_low = 44,
+    x6100_filter1_high,
+    x6100_filter2_low,
+    x6100_filter2_high,
 } x6100_cmd_enum_t;
 
 typedef enum __attribute__((__packed__))

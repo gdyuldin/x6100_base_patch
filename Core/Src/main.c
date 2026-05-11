@@ -73,7 +73,8 @@ int main(void)
   configure();
   dma_end();
   nr_init();
-  nr_setup_filters();
+  nr_apply(1.0f);
+  // nr_setup_filters();
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/

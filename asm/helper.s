@@ -65,10 +65,10 @@ _configure_wrapper:
 
   vpush {s0}
   vpush {s6-s15}
-  push {r0-r2, ip}
+  push {r0-r3, ip, lr}
   bl _configure
 
-  pop {r0-r2, ip}
+  pop {r0-r3, ip, lr}
   vpop {s6-s15}
   vpop {s0}
 
@@ -94,9 +94,9 @@ _dma_end_wrapper:
   // save func registers
   vpush {s0}
   vpush {s14-s15}
-  push {r0-r2, r8-r9, fp, sl}
+  push {r0-r3, fp, sl}
   bl _dma_end
-  pop {r0-r2, r8-r9, fp, sl}
+  pop {r0-r3, fp, sl}
   vpop {s14-s15}
   vpop {s0}
 
@@ -169,13 +169,15 @@ _remove_iq_offset_wrapper:
   str.w r3, [r1, r8, lsl #0x2]
 
   // save func registers
-  push {r0-r3, ip}
+  push {r0-r3, ip, lr}
+  vpush {s13-s15}
 
   // load values
   mov r0, r4
   bl _remove_iq_offset
 
-  pop {r0-r3, ip}
+  vpop {s13-s15}
+  pop {r0-r3, ip, lr}
 
   b _jump_to_remove_iq_offset_wrapper + 4
 
@@ -203,13 +205,13 @@ _compress_wrapper:
     // Pop pDst to r0
     pop {r0}
 
-    push {r0-r2, ip}
+    push {r0-r3}
     vpush {s0-s15}
 
     bl _compress
 
     vpop {s0-s15}
-    pop {r0-r2, ip}
+    pop {r0-r3}
 
     b _jump_to_compress + 4
 
@@ -242,9 +244,11 @@ _am_modulation_wrapper:
     vmov.f32 s2, s13
 
     vpush {s13-s15}
+    push {r3}
 
     bl _am_modulation
 
+    pop {r3}
     vpop {s13-s15}
 
     vmov.f32 s14, s0
@@ -282,6 +286,7 @@ _fm_modulate_wrapper:
 
     bl _fm_modulate
 
+    @ Original code
     vmov r0, s0
 
     vpop {s13-s15}
@@ -528,10 +533,10 @@ _process_i2c_cmd_wrapper:
   bl GET_BATTERY_DATA_MAYBE     //call get_battery_data_maybe
   push {r0-r3, ip, lr}
   vpush {s0-s2}
-  vpush {s11-s15}
+  vpush {s6-s15}
   bl _process_i2c_cmd
   vpop {s0-s2}
-  vpop {s11-s15}
+  vpop {s6-s15}
   pop {r0-r3, ip, lr}
   b _jump_to_process_i2c_cmd_wrapper + 4
 
@@ -553,11 +558,11 @@ _jump_to_if_shift_rx_wrapper:
 
 .section .if_shift_rx_wrapper, "ax"
 _if_shift_rx_wrapper:
-  push {r0-r3}
+  push {r0-r3, lr}
   vpush {s11-s15}
   bl _if_shift_rx
   vpop {s11-s15}
-  pop {r0-r3}
+  pop {r0-r3, lr}
 
   ldrb.w r3, [sp,#0x107]  // Call original code
 
@@ -614,13 +619,17 @@ _nr_apply_wrapper:
   @ vpush {s0-s14}
   @ push {r1-r3, ip}
 
-  push {r0-r3, ip}
+  push {r0-r3, ip, lr}
+  VMRS R0, FPSCR
+  PUSH {R0}
   vpush {s0-s14}
   VMOV s0, s15
   bl _nr_apply
   VMOV s15, s0
   vpop {s0-s14}
-  pop {r0-r3, ip}
+  POP {R0}
+  VMSR FPSCR, R0
+  pop {r0-r3, ip, lr}
 
   @ pop {r1-r3, ip}
   @ vpop {s0-s15}

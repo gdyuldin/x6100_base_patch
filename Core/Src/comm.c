@@ -8,6 +8,7 @@
 #include "if_shift.h"
 #include "modulations.h"
 #include "anf.h"
+#include "noise_reduction.h"
 #include "noise_blanker.h"
 
 static uint8_t *cmp_level = (uint8_t *)CMP_LEVEL_VALUE;
@@ -23,6 +24,11 @@ struct {
     x6100_reg_dac_adc_offsets_t dac_adc_offsets;
     x6100_reg_tx_filter_t tx_filters;
     x6100_reg_nrthr_nbw_nbthr_nre_nbe_t nr_nb;
+
+    int32_t filter1_low;
+    int32_t filter2_low;
+    int32_t filter1_high;
+    int32_t filter2_high;
 } i2c_raw __attribute((section(".ccmram")));
 
 struct
@@ -334,10 +340,38 @@ void process_i2c_cmd(void) {
     // NR-NB
     if (i2c_regs[x6100_nrthr_nbw_nbthr_nre_nbe] != i2c_raw.nr_nb.i) {
         i2c_raw.nr_nb.i = i2c_regs[x6100_nrthr_nbw_nbthr_nre_nbe];
+        nr_setup_threshold(i2c_raw.nr_nb.v.nr_level);
         nb_set_params(
             i2c_raw.nr_nb.v.nbe,
             i2c_raw.nr_nb.v.nb_width,
             i2c_raw.nr_nb.v.nb_level
+        );
+    }
+
+    // Update NR filters
+    bool filter_changed = false;
+    if (i2c_regs[x6100_filter1_low] != i2c_raw.filter1_low) {
+        i2c_raw.filter1_low = i2c_regs[x6100_filter1_low];
+        filter_changed = true;
+    }
+    if (i2c_regs[x6100_filter2_low] != i2c_raw.filter2_low) {
+        i2c_raw.filter2_low = i2c_regs[x6100_filter2_low];
+        filter_changed = true;
+    }
+    if (i2c_regs[x6100_filter1_high] != i2c_raw.filter1_high) {
+        i2c_raw.filter1_high = i2c_regs[x6100_filter1_high];
+        filter_changed = true;
+    }
+    if (i2c_regs[x6100_filter2_high] != i2c_raw.filter2_high) {
+        i2c_raw.filter2_high = i2c_regs[x6100_filter2_high];
+        filter_changed = true;
+    }
+    if (filter_changed) {
+        nr_setup_filters(
+            i2c_raw.filter1_low,
+            i2c_raw.filter2_low,
+            i2c_raw.filter1_high,
+            i2c_raw.filter2_high
         );
     }
 
