@@ -704,6 +704,31 @@ _nb_apply:
   nop
 
 
+/**
+SSB IQ filter setup
+
+   08026f92 4f f4 80 43     mov.w   r3 ,#0x4000  // 2 bytes for 3300.0 float32
+   08026f96 9b ed 00 0a     vldr.32 s0,[r11]
+   08026f9a c4 f2 4e 53     movt    r3, #0x454e  // 2 bytes for 3300.0 float32
+*/
+
+.section .insert_to_ssb_iq_filter1, "ax"
+  @ old value: 3300.0 (0x454e4000)
+  @ new value: 5000.0 (0x459c4000)
+  mov.w   r3 ,#0x4000
+  vldr.32 s0,[r11]
+  movt    r3, #0x459c
+
+/**
+   08026fbe 4f f4 80 43     mov.w   r3,#0x4000
+   08026fc2 c4 f2 ce 53     movt    r3,#0x45ce
+ */
+.section .insert_to_ssb_iq_filter2, "ax"
+  @ old value: 6600.0 (0x45ce4000)
+  @ new value: 10000.0 (0x461c4000)
+  mov.w   r3 ,#0x4000
+  movt    r3, #0x461c
+
 
 @ sl -> R10
 @ fp -> R11

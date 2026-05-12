@@ -77,6 +77,10 @@ patchsets = {
         'copy_flow': 0x08033c88,
         'process_i2c_cmd': 0x0802c1a0,
         'skip_am_mult': 0x08024d20,
+
+        'ssb_iq_filter1': 0x08026f92,
+        'ssb_iq_filter2': 0x08026fbe,
+
         'build_time': 0x0803cebc,
         'external_fn': {
             'setup_biquad_filter': 0x08021764,
@@ -470,6 +474,9 @@ def main():
         InjectAsm("skip_am_mult", patchset["skip_am_mult"]),
         InjectAsm("skip_oem_nr", patchset["skip_oem_nr"]),
         InjectAsm("skip_oem_nr_postprocess", patchset["skip_oem_nr_postprocess"], desired_len=6),
+
+        InjectAsm("ssb_iq_filter1", patchset["ssb_iq_filter1"], desired_len=12),
+        InjectAsm("ssb_iq_filter2", patchset["ssb_iq_filter2"], desired_len=8),
     ], asm_o_file=o_file, flash_offset=flash_offset, orig_fw_size=len(orig_code), rodata_start=rodata_start, rodata_end=rodata_end)
 
     elf = "asm/helper.elf"
