@@ -156,11 +156,8 @@ int nr_init(void)
     nr.cur_step = STAGE1;
     nr.next_step = STAGE1;
 
-    // float *nrthr = (float *)NR_THR_F;
-    // *nrthr = 30.0f;
-    // // Another value to force update
-    // nr.thr = 0.0f;
-
+    nr.filter_low_bin = 2;
+    nr.filter_high_bin = 123;
     nr_setup_filters(100, 100, 3000, 3000);
     nr_setup_threshold(0.0f);
 
@@ -274,16 +271,16 @@ void nr_prepare(void) {
         }
 
         // Process changed freqs
-        // if (nr.filter_low_bin > nr.filter_low_bin_next) {
-        //     ext_arm_fill_f32(0.0f, nr.prev_mag, nr.filter_low_bin);
-        //     ext_arm_fill_f32(0.1f, nr.noise_psd, nr.filter_low_bin);
-        //     ext_arm_fill_f32(1.0f, nr.gain_smooth, nr.filter_low_bin);
-        // }
-        // if (nr.filter_high_bin < nr.filter_high_bin_next) {
-        //     ext_arm_fill_f32(0.0f, nr.prev_mag + nr.filter_high_bin, ARRAY_SIZE(nr.prev_mag) - nr.filter_high_bin);
-        //     ext_arm_fill_f32(0.1f, nr.noise_psd + nr.filter_high_bin, ARRAY_SIZE(nr.prev_mag) - nr.filter_high_bin);
-        //     ext_arm_fill_f32(1.0f, nr.gain_smooth + nr.filter_high_bin, ARRAY_SIZE(nr.prev_mag) - nr.filter_high_bin);
-        // }
+        if (nr.filter_low_bin > nr.filter_low_bin_next) {
+            ext_arm_fill_f32(0.0f, nr.prev_mag, nr.filter_low_bin);
+            ext_arm_fill_f32(0.1f, nr.noise_psd, nr.filter_low_bin);
+            ext_arm_fill_f32(1.0f, nr.gain_smooth, nr.filter_low_bin);
+        }
+        if (nr.filter_high_bin < nr.filter_high_bin_next) {
+            ext_arm_fill_f32(0.0f, nr.prev_mag + nr.filter_high_bin, ARRAY_SIZE(nr.prev_mag) - nr.filter_high_bin);
+            ext_arm_fill_f32(0.1f, nr.noise_psd + nr.filter_high_bin, ARRAY_SIZE(nr.prev_mag) - nr.filter_high_bin);
+            ext_arm_fill_f32(1.0f, nr.gain_smooth + nr.filter_high_bin, ARRAY_SIZE(nr.prev_mag) - nr.filter_high_bin);
+        }
         nr.filter_low_bin = nr.filter_low_bin_next;
         nr.filter_high_bin = nr.filter_high_bin_next;
     }
