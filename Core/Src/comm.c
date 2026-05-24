@@ -10,11 +10,13 @@
 #include "anf.h"
 #include "noise_reduction.h"
 #include "noise_blanker.h"
+#include "vox.h"
 
 static uint8_t *cmp_level = (uint8_t *)CMP_LEVEL_VALUE;
 
 
 struct {
+    uint32_t rx_vol;
     uint32_t rfg_txpwr;
     uint32_t cmplevel_cmpe;
     uint32_t dnfcnt_dnfwidth_dnfe;
@@ -173,6 +175,16 @@ uint32_t copy_flow(float *p_Dst) {
     // } fuint = {v};
     // flow.info._pad2 = fuint.i;
 
+    union {
+        int8_t db[4];
+        uint32_t i;
+    } vox_values;
+
+    vox_get_levels(vox_values.db);
+    flow.info._pad2 = vox_values.i;
+
+    // USE_OEM_TX_STATE_FLAGS_AS(txState);
+    // flow.info._pad2 = *txState;
 
     // flow.info.pad = TIM2->ARR;
     // TIM2->ARR = 4000 / 5;
@@ -375,17 +387,47 @@ void process_i2c_cmd(void) {
         );
     }
 
+    // RX volume
+    i2c_raw.rx_vol = i2c_regs[x6100_rxvol];
+
+
     if (i2c_regs[x6100_if_shift] != i2c_raw.if_shift) {
         i2c_raw.if_shift = i2c_regs[x6100_if_shift];
         bool on = !((i2c_raw.if_shift >> 24) & 0xFF);
         int32_t freq = (int32_t)(i2c_raw.if_shift << 8) >> 8;
         if_shift_setup(on, freq);
 
-        // uint32_t *tx_flags = (uint32_t*)0x200001b8;
-        // if (data->if_shift.on) {
-        //     *tx_flags |= 0x20;
-        // } else {
-        //     *tx_flags &= (~0x20);
+        // test
+        // if (on && (freq != 0)) {
+        //     uint8_t data[2];
+        //     data[0] = 0;
+        //     data[1] = 1;
+        //     ext_write_i2c((void*)0x40005800, 0x30, data, 2, 10000);
+        //     // Page 1, Register 1, D(3) = 0
+        //     data[0] = 1;
+        //     data[1] = 0;
+        //     ext_write_i2c((void*)0x40005800, 0x30, data, 2, 10000);
+        //     // Page 1, Register 2, D(0) = 0
+        //     // Page 1, Register 2, D(3) = 1
+        //     data[0] = 2;
+        //     data[1] = 4;
+        //     ext_write_i2c((void*)0x40005800, 0x30, data, 2, 10000);
         // }
     }
+
+    // VOX
+    if (i2c_regs[x6100_voxg_voxag_voxdly_voxe] != i2c_raw.vox.i) {
+        i2c_raw.vox.i = i2c_regs[x6100_voxg_voxag_voxdly_voxe];
+        vox_set_params(
+            i2c_raw.vox.v.on,
+            i2c_raw.vox.v.gain,
+            i2c_raw.vox.v.ag,
+            i2c_raw.vox.v.delay
+        );
+    }
+}
+
+
+uint8_t get_rx_vol(void) {
+    return i2c_raw.rx_vol & 0xff;
 }

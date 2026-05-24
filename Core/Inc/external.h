@@ -17,9 +17,42 @@
 #define USE_OEM_FREQ_PLUS_RIT_AS(x) volatile uint32_t* x = (uint32_t *)FREQ_PLUS_RIT
 #define USE_OEM_SAMPLES_COUNT_VALUE_AS(x) volatile uint32_t* x = (uint32_t *)SAMPLES_COUNT_VALUE
 #define USE_OEM_NRE_AS(x) volatile uint8_t* x = (uint8_t *)NRE_FLAG
+#define USE_OEM_TX_STATE_FLAGS_AS(x) volatile uint32_t* x = (uint32_t *)TX_STATE_FLAGS
 
 // I2C registers values start pointer
 #define USE_OEM_I2C_REGS_AS(x) volatile uint32_t* x = (uint32_t *)I2C_REGS_ADDR
+
+enum tx_state {
+    TX_STATE_IPTT = 1,
+    TX_STATE_HPTT = 2,
+    // 2 - maybe external mic connected
+    TX_STATE_ATU = 0x10,
+    TX_STATE_VOX = 0x20,
+    TX_STATE_MODEM = 0x40,
+    // 0x80 - some gpio (gpioe)
+    TX_STATE_CALIBRATION = 0x100,
+    TX_STATE_SWR_SCAN = 0x200,
+};
+
+/*
+            iVar2 = get_cur_tx_maybe();
+            if (iVar2 == 0) {
+              if ((tx->flags & 2) == 0) {
+                if ((tx->flags & 1) != 0) {
+                  tx->tx_flag = 1;
+                }
+              }
+              else {
+                tx->tx_flag = 1;
+              }
+            }
+
+
+            param_1->flags_copy = tx->flags;
+            if (((tx->tx_flag == '\x01') && (iVar2 = get_cur_tx_maybe(), iVar2 == 0)) && (tx->flags == 0)) {
+                tx->tx_flag = 0;
+            }
+*/
 
 enum __attribute__((__packed__)) mod_t {
     MOD_LSB,
@@ -72,5 +105,17 @@ extern void setup_biquad_filter(float sampling_rate, float freq_low, float freq_
 
 extern void ext_write_i2c(void *i2c_typedef, uint32_t addr, uint8_t *data, uint32_t data_len, uint32_t timeout)
     __attribute__((noinline, section(".write_i2c_sec")));
+
+extern void ext_setup_tx(void *struct_data, uint32_t flags, uint8_t tx)
+    __attribute__((noinline, section(".setup_tx_sec")));
+
+extern void ext_setup_internal_mic_power(uint32_t val)
+    __attribute__((noinline, section(".setup_internal_mic_power_sec")));
+
+extern void ext_set_mic_level(uint32_t ch, uint32_t val)
+    __attribute__((noinline, section(".set_mic_level_sec")));
+
+extern void ext_set_audio_codec_input(uint32_t ch, uint32_t input)
+    __attribute__((noinline, section(".set_audio_codec_input_sec")));
 
 #endif // __EXTERNAL_H

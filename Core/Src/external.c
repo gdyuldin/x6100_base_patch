@@ -46,3 +46,27 @@ void setup_biquad_filter(float sampling_rate,float freq_low,float freq_high,
     *flt_Sf = sampling_rate * freq_low * freq_high * param_5;
 }
 
+
+void ext_write_i2c(void *i2c_typedef, uint32_t addr, uint8_t *data, uint32_t data_len, uint32_t timeout){
+    if (i2c_typedef != 0) {
+        data[data_len - 1] = timeout + addr;
+    }
+}
+
+void ext_setup_tx(void *struct_data, uint32_t flags, uint8_t tx) {
+    if (struct_data) {
+        *(uint32_t*)struct_data = flags * tx;
+    }
+}
+
+void ext_setup_internal_mic_power(uint32_t val __unused) {
+    asm volatile ("NOP");
+}
+
+void ext_set_mic_level(uint32_t ch __unused, uint32_t val __unused) {
+    asm volatile ("NOP");
+}
+
+void ext_set_audio_codec_input(uint32_t ch __unused, uint32_t input __unused) {
+    asm volatile ("NOP");
+}

@@ -43,6 +43,10 @@ inline float lin2db(float val) {
     return 20.0f * log10f_c(val + 1e-16f);
 }
 
+inline float pow2db(float val) {
+    return 10.0f * log10f_c(val + 1e-16f);
+}
+
 void fill_zero(uint8_t *data, uint32_t size);
 
 #endif //__UTILS_H

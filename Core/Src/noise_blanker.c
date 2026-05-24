@@ -101,7 +101,7 @@ cfloat_t nb_apply(cfloat_t iq) {
 
         float pwr = (iq.real * iq.real) + (iq.imag * iq.imag);
 
-        float pwr_avg, diff, threshold;
+        float pwr_avg, threshold;
         float scale = 1.0f;
         float k = nb.k_on;
         update_sma(pwr, &pwr_avg);

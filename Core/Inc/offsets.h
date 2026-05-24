@@ -84,6 +84,12 @@
 #define AGC_ON                          (0x2000a8b0)
 #define AGC_SCALE                       (0x2000a888)
 
+#define TX_AUDIO_FLOAT_IN               (0x20006d18)
+#define OUT_AUDIO_INT                   (0x2000469c)
+#define TX_STATE_FLAGS                  (0x200001b8)
+
+// Global tx flag 2000a676
+
 #endif
 
 #endif

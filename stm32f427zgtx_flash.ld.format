@@ -78,7 +78,7 @@ SECTIONS
   } >FLASH
 
   /* The program code and other data goes into FLASH */
-  .text :
+  .text : SUBALIGN(1)
   {
     /* Set BB functions*/
     start_text = ABSOLUTE(.);
@@ -86,16 +86,19 @@ SECTIONS
     ${EXTERNAL_FUNCTIONS}
 
     /* Set new functions with offset for asm code */
-    . = ${END_OEM_FW_OFFSET} - start_text + 64;
+    . = ${END_OEM_FW_OFFSET} - start_text;
     . = ALIGN(4);
     *(.text)           /* .text sections (code) */
     . = ALIGN(4);
     *(.text*)          /* .text* sections (code) */
 
-
+    . = ALIGN(4);
     *(.glue_7)         /* glue arm to thumb code */
+    . = ALIGN(4);
     *(.glue_7t)        /* glue thumb to arm code */
+    . = ALIGN(4);
     *(.eh_frame)
+    . = ALIGN(4);
 
     KEEP (*(.init))
     KEEP (*(.fini))
@@ -108,10 +111,12 @@ SECTIONS
   .rodata :
   {
     . = ALIGN(4);
+    _srodata = .;        /* create a global symbol at rodata start */
     *(.rodata)         /* .rodata sections (constants, strings, etc.) */
     *(.rodata.patch_data)
     *(.rodata*)        /* .rodata* sections (constants, strings, etc.) */
     . = ALIGN(4);
+    _erodata = .;        /* define a global symbol at rodata end */
   } >FLASH
 
   .ARM.extab   : { *(.ARM.extab* .gnu.linkonce.armextab.*) } >FLASH

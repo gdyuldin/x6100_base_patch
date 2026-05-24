@@ -17,6 +17,8 @@
 #include "comm.h"
 #include "if_shift.h"
 #include "external.h"
+#include "vox.h"
+
 // #include <dsp/fast_math_functions.h>
 // #include <dsp/support_functions.h>
 
@@ -481,6 +483,7 @@ __attribute__((optimize("O1"))) void init_data(void) {
     comm_init();
     if_shift_init();
     fm_demod_init();
+    vox_init();
 
     // Init frequencies for NR correct initialization
     struct filter_freqs_t *filter_frequencies = (struct filter_freqs_t *)FILTER_FREQUENCIES;
@@ -669,6 +672,12 @@ static void reset_filters_states_on_changes() {
 void configure(void) {
     USE_OEM_TX_FLAG_AS(pTx);
     USE_OEM_I2C_REGS_AS(i2c_regs);
+    // USE_OEM_TX_STATE_FLAGS_AS(txState);
+
+    // Stop VOX on any other TX flag
+    // if (*txState & (~TX_STATE_VOX)) {
+    //     vox_stop();
+    // }
 
     reset_filters_states_on_changes();
     nr_prepare();
@@ -715,6 +724,7 @@ void configure(void) {
  */
 
 void dma_end(void) {
+    vox_compute();
     flow_collecting_at_end();
 }
 
@@ -847,14 +857,21 @@ void compress(float *pval)
 {
     USE_OEM_MODULATION_AS(pMode);
     switch (*pMode) {
-        // case MOD_LSB:
-        case MOD_LSB_D: // lsb-d
-        case MOD_USB_D: // usb-d
-            *pval *= data->tx_amp_coeffs.adc_input_coeff;
+        case MOD_CW:
+        case MOD_CWR:
             return;
             break;
-        case MOD_CW: // cw
-        case MOD_CWR: // cwr
+        default:
+            break;
+    }
+    float val = *pval * data->tx_amp_coeffs.adc_input_coeff;
+
+    val = vox_process_audio_sample(val);
+
+    switch (*pMode) {
+        case MOD_LSB_D:
+        case MOD_USB_D:
+            *pval = val;
             return;
             break;
         default:
@@ -881,12 +898,12 @@ void compress(float *pval)
 
     data->comp.squared_sum -= ring_buf_get(&data->comp.squared_acc);
     float old_val = ring_buf_get(&data->comp.dline);
-    float rms;
     float squared_mean = data->comp.squared_sum / data->comp.squared_acc.size;
+    float rms_db;
     if (squared_mean >= 0) {
-        rms = ext_sqrt_f32(squared_mean);
+        rms_db = pow2db(squared_mean);
     } else {
-        rms = 0.0f;
+        rms_db = -120.0f;
     }
     // For debug
     // union {
@@ -898,9 +915,7 @@ void compress(float *pval)
     // data->flow_info._pad2 = *(uint32_t*)0x20009abc;  // MUL1 0.8f
     // data->flow_info._pad2 = *(uint32_t*)0x2000a184;  // FM depth mul 1
 
-    float rms_db = lin2db(rms);
-
-    if (rms_db == NAN) {
+    if (isnan(rms_db)) {
         rms_db = UNITY_LVL;
     }
 

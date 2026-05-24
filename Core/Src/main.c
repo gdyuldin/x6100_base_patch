@@ -24,6 +24,8 @@
 #include "compressor.h"
 #include "noise_reduction.h"
 #include "noise_blanker.h"
+#include "vox.h"
+#include "aic3204.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -74,6 +76,9 @@ int main(void)
   dma_end();
   nr_init();
   nr_apply(1.0f);
+  vox_update(1.0f);
+  vox_restore_audio_input(0, 0, 0);
+  aic_setup_adc_dc_blocker();
   // nr_setup_filters();
   /* USER CODE END 1 */
 

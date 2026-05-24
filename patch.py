@@ -1,4 +1,6 @@
+import dataclasses
 import hashlib
+import math
 import os
 import shlex
 import string
@@ -16,6 +18,11 @@ import numpy as np
 # sbss: 20003560, sbss_p: 08034ab8
 # ebss: 2000ea7c, ebss_p: 08034abc
 
+
+@dataclasses.dataclass
+class Insert:
+    name: str
+    desired_len: int = 4
 
 
 prog_name = "x6100_mcu"
@@ -68,11 +75,11 @@ patchsets = {
         'am_fm_rx_process': 0x08028b8e,  # RX
         'anf_update': 0x08025bc8,  # RX
 
-        'noise_reduction': 0x08024bf6,
+        'nr_apply': 0x08024bf6,
         'skip_oem_nr': 0x08024d42,
         'skip_oem_nr_postprocess': 0x08024da8,
 
-        'noise_blanker': 0x08024962,
+        'nb_apply': 0x08024962,
 
         'copy_flow': 0x08033c88,
         'process_i2c_cmd': 0x0802c1a0,
@@ -80,6 +87,9 @@ patchsets = {
 
         'ssb_iq_filter1': 0x08026f92,
         'ssb_iq_filter2': 0x08026fbe,
+
+        'vox_update': 0x08024f20,
+        'vox_restore_audio_input': 0x0802bcbe,
         'aic_setup_adc_dc_blocker': 0x0802fc6a,
 
         'build_time': 0x0803cebc,
@@ -94,6 +104,10 @@ patchsets = {
             'arm_sin_f32': 0x08036394,
             'arm_cos_f32': 0x0803641c,
             'write_i2c': 0x08031a7c,
+            'setup_tx': 0x0802bbf4,
+            'set_mic_level': 0x0802f6ce,
+            'set_audio_codec_input': 0x0802f9ee,
+            'setup_internal_mic_power': 0x0802fb22,
         },
         'end_oem_fw_offset': 0x807fbf4,
         'filter_data': {
@@ -117,7 +131,7 @@ patchsets = {
 }
 
 
-def make_stm32f_ld_file(patchset: dict):
+def make_stm32f_ld_file(patchset: dict, end_orig_and_wrappers: int):
     with open("stm32f427zgtx_flash.ld.format") as f:
         tpl = string.Template(f.read())
 
@@ -128,11 +142,50 @@ def make_stm32f_ld_file(patchset: dict):
         external_functions.append(f"*(.{fn_name}_sec)")
     mapping = {
         "EXTERNAL_FUNCTIONS": "\n".join(external_functions),
-        "END_OEM_FW_OFFSET": patchset['end_oem_fw_offset'],
+        "END_OEM_FW_OFFSET": end_orig_and_wrappers,
     }
     text = tpl.substitute(mapping)
 
     with open("stm32f427zgtx_flash.ld", "w") as f:
+        f.write(text)
+
+
+def make_asm_ld_file(
+    patchset: dict,
+    inserts: list[Insert],
+    asms: list[Insert],
+    oem_fw_end: int,
+    new_addresses: dict,
+):
+    with open("asm/patch.ld.tpl") as f:
+        tpl = string.Template(f.read())
+
+    ins_blocks = []
+    all_ins = inserts + asms
+    all_ins.sort(key=lambda x: patchset[x.name])
+    for ins in all_ins:
+        ins_blocks.append(f"\t\t. = 0x{patchset[ins.name]:08x} - start_text;")
+        ins_blocks.append(f"\t\t*(.insert_to_{ins.name});")
+
+    wrap_blocks = []
+    for ins in inserts:
+        wrap_blocks.append(f"\t\t*(.{ins.name}_wrapper)")
+
+    inserts.sort(key=lambda x: new_addresses[x.name])
+    new_fn_blocks = []
+    for ins in inserts:
+        new_fn_blocks.append(f"\t\t. = 0x{new_addresses[ins.name]:08x} - start_text;")
+        new_fn_blocks.append(f"\t\t*(.{ins.name});")
+
+    mapping = {
+        "INSERTS": "\n".join(ins_blocks),
+        "OEM_FW_END": f"0x{oem_fw_end:08x}",
+        "WRAPPERS": "\n".join(wrap_blocks),
+        "NEW_FN": "\n".join(new_fn_blocks),
+    }
+    text = tpl.substitute(mapping)
+
+    with open("asm/patch.ld", "w") as f:
         f.write(text)
 
 
@@ -154,15 +207,63 @@ def compile_patch_helper(asm, o_file, date):
     subprocess.check_call(shlex.split(cmd))
 
 
-def link_patch_helper(o_file, target, start_offset, **sections):
-    cmd = f"arm-none-eabi-ld -Ttext={hex(start_offset)}"
-    for sec_name, sec_addr in sections.items():
-        if sec_addr is not None:
-            cmd += f" --section-start .{sec_name}={hex(sec_addr)} "
-    cmd += f"-o {target} {o_file}"
+def get_patch_helper_sizes(o_file):
+    cmd = f"arm-none-eabi-size -A {o_file}"
+    print("Call:", cmd)
+    res = subprocess.check_output(shlex.split(cmd)).decode()
+    sections_sizes = {
+        "inserts": {},
+        "wrappers": {},
+        "code_placeholders": {},
+    }
+    for line in res.splitlines():
+        if not line.startswith("."):
+            continue
+        if line.strip() in (".text", ".data", ".bss", ".ARM.attributes"):
+            continue
+        section, size, _ = line.split()
+        size = int(size)
+        if section.startswith('.insert_to'):
+            sections_sizes["inserts"][section] = size
+        elif section.endswith('_wrapper'):
+            sections_sizes["wrappers"][section] = size
+        else:
+            sections_sizes["code_placeholders"][section] = size
+    return sections_sizes
+
+
+def get_elf_addresses(elf_file):
+    # Add -S for size
+    cmd = f"arm-none-eabi-nm {elf_file}"
+    print("Call:", cmd)
+    res = subprocess.check_output(shlex.split(cmd)).decode()
+    symbols = {}
+    for line in res.splitlines():
+        addr, _, name = line.split()
+        addr = int(addr, 16)
+        symbols[name] = addr
+    return symbols
+
+
+def link_patch_helper(o_file, target):
+    cmd = f"arm-none-eabi-ld -Map={target}.map -T asm/patch.ld -o {target}.elf {o_file}"
     print("Call:", cmd)
     ld_cmd = shlex.split(cmd)
     subprocess.check_call(ld_cmd)
+    cmd = f"arm-none-eabi-objcopy -O binary {target}.elf {target}.bin"
+    print("Call:", cmd)
+    ld_cmd = shlex.split(cmd)
+    subprocess.check_call(ld_cmd)
+
+# def link_patch_helper(o_file, target, start_offset, **sections):
+#     cmd = f"arm-none-eabi-ld -Ttext={hex(start_offset)}"
+#     for sec_name, sec_addr in sections.items():
+#         if sec_addr is not None:
+#             cmd += f" --section-start .{sec_name}={hex(sec_addr)} "
+#     cmd += f"-o {target} {o_file}"
+#     print("Call:", cmd)
+#     ld_cmd = shlex.split(cmd)
+#     subprocess.check_call(ld_cmd)
 
 
 def get_patched_section(elf, section_name) -> bytes:
@@ -186,19 +287,6 @@ def get_block_start_end(name, section_prefix="text"):
                 end_addr = start_addr + int(parts[1], 16)
                 print(f".{section_prefix}.{name} start: {start_addr:x}, end: {end_addr:x}, len: {(end_addr - start_addr):x}")
                 return start_addr, end_addr
-
-
-def get_rodata_start_end(elf):
-    cmd = shlex.split(f"arm-none-eabi-objdump {elf} -h -j .rodata")
-    res = subprocess.check_output(cmd)
-    for line in res.splitlines():
-        if b" .rodata " in line:
-            items = line.split()
-            start_addr = int(items[3], 16)
-            size = int(items[2], 16)
-            return start_addr, start_addr + size
-    else:
-        raise RuntimeError("Cant find rodata addr")
 
 
 def get_section_start(name):
@@ -310,6 +398,7 @@ class InjectFunction:
         self.insert_code = b""
 
     def setup_wrapper_len(self, asm_o_file):
+        # Maybe switch to arm-none-eabi-size -A  asm/helper.o
         self.wrapper_len = align(len(get_patched_section(asm_o_file, f".{self.name}_wrapper")))
 
     def print_used_registers(self):
@@ -354,6 +443,8 @@ class InjectFunctions:
         accumulated_size = 0
         for fn in self.functions:
             fn.setup_wrapper_len(asm_o_file)
+            if (fn.wrapper_len):
+                print(f"Wrapper len: {fn.wrapper_len}")
             fn.print_used_registers()
             self.sections[f"insert_to_{fn.name}"] = fn.inject_addr
             if fn.wrapper_len:
@@ -420,87 +511,169 @@ def main():
     hashsum = hashlib.md5(orig_code).hexdigest()
     patchset = patchsets[hashsum]
 
-    make_stm32f_ld_file(patchset)
+    # check from ghidra
+    flash_offset = 0x08020000
+
+    # Compile helpers
+    asm = "asm/helper.s"
+    o_file = "asm/helper.o"
+    compile_patch_helper(asm, o_file, date=patchset["date"])
+
+    # get helpers wrappers size
+    helper_sizes = get_patch_helper_sizes(o_file)
+    total_wrapper_len = sum(math.ceil(x/4) * 4 for x in helper_sizes["wrappers"].values())
+
+    make_stm32f_ld_file(patchset, end_orig_and_wrappers=flash_offset + len(orig_code) + total_wrapper_len)
     compile_c_binaries(date=patchset["date"])
 
     with open(f"build/Release/{prog_name}.bin", "rb") as f:
         patched_code = f.read()
 
-    # check from ghidra
-    flash_offset = 0x08020000
+    # get addresses of binary
+    symbols = get_elf_addresses(f"build/Release/{prog_name}.elf")
 
-    # value from reset_handler and first 4 bytes from firmware
-    # No need to move stack, patch uses CCM RAM
-    # stack_p_addr = 0x20030000
-    stack_p_0 = flash_offset
-    stack_p_1 = patchset["stack_p_1"]
-    # # offset is a len of data struct for injected functions
-    # stack_new_p = stack_p_addr - 131112
+    rodata_start = symbols["_srodata"]
+    rodata_end = symbols["_erodata"]
 
-    # Stack to CCMRAM
-    # stack_new_p = 0x10010000
-    stack_new_p = 0x10010000
+    inserts = [
+        Insert("init_data"),  # fill ram area with zeros
+        Insert("configure"),  # configure state at start of DMA handler
+        Insert("dma_end"),  # code for end of the DMA handler
+        Insert("remove_iq_offset"),  # Remove IQ offset from incoming data
+        Insert("if_shift_rx"),  # Apply IF shift
 
+        Insert("if_shift_tx"),  # Handle IF shift on TX
+        Insert("compress"),  # compress, limit TX signal
+        Insert("am_modulation"),  # soft limit AM signal and modulate
 
-    # arm-none-eabi-objdump -S build/Release/CMakeFiles/test_patch.dir/Core/Src/compressor.c.obj
+        Insert("fm_modulate"),  # fm modulation prepare
+        Insert("tx_amp"),  # amp IQ according to configured TX power
+        Insert("tx_coeff_calc"),  # update coefficients for IQ on TX power change
+        Insert("fm_demodulate"),  # Demodulate FM
 
-    asm = "asm/helper.s"
-    o_file = "asm/helper.o"
-    compile_patch_helper(asm, o_file, date=patchset["date"])
+        Insert("am_fm_rx_process"),  # process AM/FM rx (sql, dc blocker)
+        Insert("anf_update"),  # update notch filter params
+        Insert("nr_apply"),  # noise reduction
+        Insert("nb_apply"),  # noise blanker
+        Insert("copy_flow"),  # copy data samples to flow with changes
+        Insert("process_i2c_cmd"),  # handle i2c commands
 
-    rodata_start, rodata_end = get_rodata_start_end(f"build/Release/{prog_name}.elf")
+        Insert("vox_update"),  # Update in and out audio for VOX
+        Insert("vox_restore_audio_input"),  # Restore audio input cfg on stop tx
 
-    functions = InjectFunctions([
-        InjectFunction("init_data", patchset["init_data"]),  # fill ram area with zeros
-        InjectFunction("configure", patchset["configure"]),  # configure state at start of DMA handler
-        InjectFunction("dma_end", patchset["dma_end"]),  # code for end of the DMA handler
-        InjectFunction("remove_iq_offset", patchset["remove_iq_offset"]),  # Remove IQ offset from incoming data
-        InjectFunction("if_shift_rx", patchset["if_shift_rx"]),  # Apply IF shift
+        Insert("aic_setup_adc_dc_blocker"),  # Setup AIC3204 input dc blocker
+    ]
 
-        InjectFunction("if_shift_tx", patchset["if_shift_tx"]),  # Handle IF shift on TX
-        InjectFunction("compress", patchset["compress"]),  # compress, limit TX signal
-        InjectFunction("am_modulation", patchset["am_modulation"]),  # soft limit AM signal and modulate
+    asms = [
+        Insert("skip_am_mult"),
+        Insert("skip_oem_nr"),
+        Insert("skip_oem_nr_postprocess", desired_len=6),
 
-        InjectFunction("fm_modulate", patchset["fm_modulate"]),  # fm modulation prepare
-        InjectFunction("tx_amp", patchset["tx_amp"]),  # amp IQ according to configured TX power
-        InjectFunction("tx_coeff_calc", patchset["tx_coeff_calc"]),  # update coefficients for IQ on TX power change
-        InjectFunction("fm_demodulate", patchset["fm_demodulate"]),  # Demodulate FM
+        Insert("ssb_iq_filter1", desired_len=12),
+        Insert("ssb_iq_filter2", desired_len=8),
+    ]
 
-        InjectFunction("am_fm_rx_process", patchset["am_fm_rx_process"]),  # process AM/FM rx (sql, dc blocker)
-        InjectFunction("anf_update", patchset["anf_update"]),  # update notch filter params
-        InjectFunction("nr_apply", patchset["noise_reduction"]),  # noise reduction
-        InjectFunction("nb_apply", patchset["noise_blanker"]),  # noise blanker
-        InjectFunction("copy_flow", patchset["copy_flow"]),  # copy data samples to flow with changes
-        InjectFunction("process_i2c_cmd", patchset["process_i2c_cmd"]),  # handle i2c commands
-        InjectFunction("aic_setup_adc_dc_blocker", patchset["aic_setup_adc_dc_blocker"]),  # Setup AIC3204 input dc blocker
+    # Check len of inserts
+    for ins in inserts + asms:
+        size = helper_sizes["inserts"][f".insert_to_{ins.name}"]
+        assert size == ins.desired_len, ins.name
 
-        InjectAsm("skip_am_mult", patchset["skip_am_mult"]),
-        InjectAsm("skip_oem_nr", patchset["skip_oem_nr"]),
-        InjectAsm("skip_oem_nr_postprocess", patchset["skip_oem_nr_postprocess"], desired_len=6),
+        print(f"Registers for {ins.name}")
+        print_used_registers(fn_name=ins.name)
+        print("")
 
-        InjectAsm("ssb_iq_filter1", patchset["ssb_iq_filter1"], desired_len=12),
-        InjectAsm("ssb_iq_filter2", patchset["ssb_iq_filter2"], desired_len=8),
-    ], asm_o_file=o_file, flash_offset=flash_offset, orig_fw_size=len(orig_code), rodata_start=rodata_start, rodata_end=rodata_end)
+    # prepare LD script for helpers
+    make_asm_ld_file(patchset,
+        inserts=inserts,
+        asms=asms,
+        oem_fw_end=flash_offset + len(orig_code),
+        new_addresses=symbols,
+    )
 
-    elf = "asm/helper.elf"
-    link_patch_helper(o_file, elf, flash_offset, **functions.sections)
+    helper_output = "asm/helper"
+    link_patch_helper(o_file, helper_output)
 
-    functions.setup_insert_code(elf)
+    with open(helper_output + ".bin", "rb") as f:
+        helper_code = f.read()
 
-    dst = bytearray(functions.new_code_end - flash_offset)
+    dst = bytearray(rodata_end - flash_offset)
+
     # Copy original code
     dst[:len(orig_code)] = orig_code
 
-    # copy new_blocks
-    functions.copy_code(patched_code, dst)
-    # copy rodata
-    functions.copy_rodata(patched_code, dst)
+    # Copy inserts
+    for ins in inserts + asms:
+        start = patchset[ins.name] - flash_offset
+        end = start + ins.desired_len
+        dst[start: end] = helper_code[start: end]
 
-    # copy wrappers
-    functions.copy_wrappers(elf, dst)
+    # Copy wrappers
+    start = len(orig_code)
+    end = start + total_wrapper_len
+    dst[start: end] = helper_code[start: end]
 
-    # insert jumps
-    functions.insert_jumps(dst)
+    # Copy new_blocks
+    start = end
+    end = rodata_end
+    dst[start: end] = patched_code[start: end]
+
+    # import pdb; pdb.set_trace()
+
+    # functions = InjectFunctions([
+    #     InjectFunction("init_data", patchset["init_data"]),  # fill ram area with zeros
+    #     InjectFunction("configure", patchset["configure"]),  # configure state at start of DMA handler
+    #     InjectFunction("dma_end", patchset["dma_end"]),  # code for end of the DMA handler
+    #     InjectFunction("remove_iq_offset", patchset["remove_iq_offset"]),  # Remove IQ offset from incoming data
+    #     InjectFunction("if_shift_rx", patchset["if_shift_rx"]),  # Apply IF shift
+
+    #     InjectFunction("if_shift_tx", patchset["if_shift_tx"]),  # Handle IF shift on TX
+    #     InjectFunction("compress", patchset["compress"]),  # compress, limit TX signal
+    #     InjectFunction("am_modulation", patchset["am_modulation"]),  # soft limit AM signal and modulate
+
+    #     InjectFunction("fm_modulate", patchset["fm_modulate"]),  # fm modulation prepare
+    #     InjectFunction("tx_amp", patchset["tx_amp"]),  # amp IQ according to configured TX power
+    #     InjectFunction("tx_coeff_calc", patchset["tx_coeff_calc"]),  # update coefficients for IQ on TX power change
+    #     InjectFunction("fm_demodulate", patchset["fm_demodulate"]),  # Demodulate FM
+
+    #     InjectFunction("am_fm_rx_process", patchset["am_fm_rx_process"]),  # process AM/FM rx (sql, dc blocker)
+    #     InjectFunction("anf_update", patchset["anf_update"]),  # update notch filter params
+    #     InjectFunction("nr_apply", patchset["noise_reduction"]),  # noise reduction
+    #     InjectFunction("nb_apply", patchset["noise_blanker"]),  # noise blanker
+    #     InjectFunction("copy_flow", patchset["copy_flow"]),  # copy data samples to flow with changes
+    #     InjectFunction("process_i2c_cmd", patchset["process_i2c_cmd"]),  # handle i2c commands
+
+    #     InjectFunction("vox_update", patchset["vox_update"]),  # Update in and out audio for VOX
+    #     InjectFunction("vox_restore_audio_input", patchset["vox_restore_audio_input"]),  # Restore audio input cfg on stop tx
+
+    #     InjectFunction("aic_setup_adc_dc_blocker", patchset["aic_setup_adc_dc_blocker"]),  # Setup AIC3204 input dc blocker
+
+    #     InjectAsm("skip_am_mult", patchset["skip_am_mult"]),
+    #     InjectAsm("skip_oem_nr", patchset["skip_oem_nr"]),
+    #     InjectAsm("skip_oem_nr_postprocess", patchset["skip_oem_nr_postprocess"], desired_len=6),
+
+    #     InjectAsm("ssb_iq_filter1", patchset["ssb_iq_filter1"], desired_len=12),
+    #     InjectAsm("ssb_iq_filter2", patchset["ssb_iq_filter2"], desired_len=8),
+    # ], asm_o_file=o_file, flash_offset=flash_offset, orig_fw_size=len(orig_code), rodata_start=rodata_start, rodata_end=rodata_end)
+
+    # elf = "asm/helper.elf"
+    # link_patch_helper(o_file, elf, flash_offset, **functions.sections)
+
+    # functions.setup_insert_code(elf)
+
+    # dst = bytearray(functions.new_code_end - flash_offset)
+    # # Copy original code
+    # dst[:len(orig_code)] = orig_code
+
+    # # copy new_blocks
+    # functions.copy_code(patched_code, dst)
+    # # copy rodata
+    # functions.copy_rodata(patched_code, dst)
+
+    # # copy wrappers
+    # functions.copy_wrappers(elf, dst)
+
+    # # insert jumps
+    # functions.insert_jumps(dst)
 
     # update stack pointers
     # for stack_p in (stack_p_0, stack_p_1):

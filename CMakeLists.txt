@@ -64,6 +64,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/anf.c
     Core/Src/comm.c
     Core/Src/if_shift.c
+    Core/Src/vox.c
     Core/Src/math/pow.c
     Core/Src/math/log10.c
     Core/Src/aic3204.c

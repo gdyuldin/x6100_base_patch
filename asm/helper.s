@@ -93,11 +93,11 @@ _dma_end_wrapper:
 
   // save func registers
   vpush {s0}
-  vpush {s14-s15}
+  vpush {s8-s15}
   push {r0-r3, fp, sl}
   bl _dma_end
   pop {r0-r3, fp, sl}
-  vpop {s14-s15}
+  vpop {s8-s15}
   vpop {s0}
 
   mov.w   r2,#0x400  // from original
@@ -728,6 +728,65 @@ SSB IQ filter setup
   @ new value: 10000.0 (0x461c4000)
   mov.w   r3 ,#0x4000
   movt    r3, #0x461c
+
+
+/**
+VOX
+   08024f20 83 ed 00 0a     vstr.32 s0,[r3]=>MEGA_STRUCT.out_audio_flo
+   S0 is output audio (wo vol applied)
+ */
+
+.section .insert_to_vox_update, "ax"
+_jump_to_vox_update_wrapper:
+  b _vox_update_wrapper
+
+.section .vox_update_wrapper, "ax"
+_vox_update_wrapper:
+
+  @ Original code
+  vstr.32 s0,[r3]
+
+  push {r1-r3, lr}
+  vpush {s11-s15}
+  bl _vox_update
+  vpop {s11-s15}
+  pop {r1-r3, lr}
+
+
+  b _jump_to_vox_update_wrapper + 4
+
+.section .vox_update, "ax"
+_vox_update:
+  nop
+
+/**
+restore audio input after tx
+
+   0802bcbe 08 f0 9b f8     bl      set_flags_2                         undefined set_flags_2()
+
+ */
+ .section .insert_to_vox_restore_audio_input, "ax"
+_jump_to_vox_restore_audio_input_wrapper:
+  b _vox_restore_audio_input_wrapper
+
+.section .vox_restore_audio_input_wrapper, "ax"
+_vox_restore_audio_input_wrapper:
+
+  @ Original code
+  bl 0x08033df8
+
+  ldr     r0, [r7, #0xc] @ Load data structure pointer
+  ldrb    r1, [r0, #0x16] @ Load hmic
+  ldrb    r2, [r0, #0x13] @ Load line-in
+  ADD     r0, #17  @ addr of use_internal_mic
+
+  bl _vox_restore_audio_input
+
+  b _jump_to_vox_restore_audio_input_wrapper + 4
+
+.section .vox_restore_audio_input, "ax"
+_vox_restore_audio_input:
+  nop
 
 
 /**

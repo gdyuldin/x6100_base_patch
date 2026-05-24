@@ -18,6 +18,7 @@ typedef enum
 {
     x6100_sple_atue_trx = 12,
     x6100_vi_vm,
+    x6100_rxvol,
     x6100_rfg_txpwr = 15,  // plus fft span
     x6100_flow_fm_emp = 18,
     x6100_dac_adc_offsets = 19,
@@ -88,6 +89,7 @@ void comm_init(void);
 
 void set_flow_params(x6100_flow_fmt_t fmt);
 void flow_collecting_at_end(void);
+uint8_t get_rx_vol(void);
 
 
 #endif //__COMM_H
