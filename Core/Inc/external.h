@@ -69,4 +69,8 @@ extern void ext_arm_fir_decimate_f32(arm_fir_decimate_instance_f32 *S,float *pSr
 extern void setup_biquad_filter(float sampling_rate, float freq_low, float freq_high, void *flt_S, int param_5)
     __attribute__((noinline, section(".setup_biquad_filter_sec")));
 
+
+extern void ext_write_i2c(void *i2c_typedef, uint32_t addr, uint8_t *data, uint32_t data_len, uint32_t timeout)
+    __attribute__((noinline, section(".write_i2c_sec")));
+
 #endif // __EXTERNAL_H

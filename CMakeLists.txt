@@ -66,6 +66,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/if_shift.c
     Core/Src/math/pow.c
     Core/Src/math/log10.c
+    Core/Src/aic3204.c
     # Add user sources here
 )
 

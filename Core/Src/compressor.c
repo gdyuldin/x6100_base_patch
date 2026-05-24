@@ -53,7 +53,6 @@
  * DC blockers constants
  */
 
-#define TX_DC_BLOCKER_ALPHA (0.05f)
 #define RX_AM_DC_BLOCKER_ALPHA (0.03f)
 #define RX_FM_DC_BLOCKER_ALPHA (0.01f)
 
@@ -96,8 +95,6 @@ typedef struct {
         float squared_acc_data[COMP_DELAY];
         float squared_sum;
     } comp;
-
-    struct dc_blocker_t tx_dc_blocker;
 
     struct {
         /* TX level control data */
@@ -284,7 +281,6 @@ void remove_iq_offset(int32_t *iq) {
         *q = 0;
         return;
     }
-
 
     if (data->rx_iq.counter) {
         data->rx_iq.counter--;
@@ -864,11 +860,6 @@ void compress(float *pval)
         default:
             break;
     }
-    float val = *pval;
-
-    // Remove DC offset
-    val = dc_blocker(val, (1.0f - TX_DC_BLOCKER_ALPHA), &data->tx_dc_blocker);
-    val *= data->tx_amp_coeffs.adc_input_coeff;
 
     // Invert (make enabled by default)
     if (*cmp_enabled) {

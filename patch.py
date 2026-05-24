@@ -80,6 +80,7 @@ patchsets = {
 
         'ssb_iq_filter1': 0x08026f92,
         'ssb_iq_filter2': 0x08026fbe,
+        'aic_setup_adc_dc_blocker': 0x0802fc6a,
 
         'build_time': 0x0803cebc,
         'external_fn': {
@@ -92,6 +93,7 @@ patchsets = {
             'arm_fir_decimate_f32': 0x08035cac,
             'arm_sin_f32': 0x08036394,
             'arm_cos_f32': 0x0803641c,
+            'write_i2c': 0x08031a7c,
         },
         'end_oem_fw_offset': 0x807fbf4,
         'filter_data': {
@@ -470,6 +472,7 @@ def main():
         InjectFunction("nb_apply", patchset["noise_blanker"]),  # noise blanker
         InjectFunction("copy_flow", patchset["copy_flow"]),  # copy data samples to flow with changes
         InjectFunction("process_i2c_cmd", patchset["process_i2c_cmd"]),  # handle i2c commands
+        InjectFunction("aic_setup_adc_dc_blocker", patchset["aic_setup_adc_dc_blocker"]),  # Setup AIC3204 input dc blocker
 
         InjectAsm("skip_am_mult", patchset["skip_am_mult"]),
         InjectAsm("skip_oem_nr", patchset["skip_oem_nr"]),

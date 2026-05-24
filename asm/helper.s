@@ -730,6 +730,31 @@ SSB IQ filter setup
   movt    r3, #0x461c
 
 
+/**
+
+Setup AIC IIR high pass filter(DC blocker for ADC)
+   0802fc6a 04 f0 cb fe     bl      sleep_maybe                         undefined sleep_maybe()
+
+*/
+
+.section .insert_to_aic_setup_adc_dc_blocker, "ax"
+_jump_to_aic_setup_adc_dc_blocker_wrapper:
+  b _aic_setup_adc_dc_blocker_wrapper
+
+.section .aic_setup_adc_dc_blocker_wrapper, "ax"
+_aic_setup_adc_dc_blocker_wrapper:
+
+  @ Original code
+  bl 0x08034a04
+
+  bl _aic_setup_adc_dc_blocker
+
+  b _jump_to_aic_setup_adc_dc_blocker_wrapper + 4
+
+.section .aic_setup_adc_dc_blocker, "ax"
+_aic_setup_adc_dc_blocker:
+  nop
+
 @ sl -> R10
 @ fp -> R11
 @ ip -> R12
