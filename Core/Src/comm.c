@@ -168,20 +168,16 @@ uint32_t copy_flow(float *p_Dst) {
 
     flow.info.flow_seq_n = 0xf;
 
+    float audio_in_lvl = vox_get_audio_in_lvl() + 127;
+    audio_in_lvl = CLIP(audio_in_lvl, 0, 127);
+    flow.info.audio_in_lvl_db = audio_in_lvl;
+
     // float v = get_max_sig();
     // union {
     //     float f;
     //     uint32_t i;
     // } fuint = {v};
     // flow.info._pad2 = fuint.i;
-
-    union {
-        int8_t db[4];
-        uint32_t i;
-    } vox_values;
-
-    vox_get_levels(vox_values.db);
-    flow.info._pad2 = vox_values.i;
 
     // USE_OEM_TX_STATE_FLAGS_AS(txState);
     // flow.info._pad2 = *txState;

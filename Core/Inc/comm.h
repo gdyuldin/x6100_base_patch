@@ -81,7 +81,8 @@ typedef struct __packed {
     uint8_t flow_seq_total: 4;
     uint8_t vary_freq: 1;
     uint8_t fft_dec: 3;
-    uint32_t _pad1: 12;
+    uint16_t audio_in_lvl_db: 7;  // audio in dB in range 0 ... 127 with +127 dB offset
+    uint32_t _pad1: 5;
     uint32_t _pad2;
 } flow_info_t;
 

@@ -37,9 +37,8 @@ CCMRAM struct {
         uint8_t r;
     } dline;
 
-    // test
-    float in_mic_db;
-    float in_line_db;
+    // for debugging/reporting to linux
+    float in_db;
     float out_db;
 } vox;
 
@@ -62,9 +61,7 @@ void vox_init(void) {
     vox.dline.r = 0;
     vox.dline.w = 0;
 
-    // test
-    vox.in_mic_db = 0.0f;
-    vox.in_line_db = 0.0f;
+    vox.in_db = 0.0f;
     vox.out_db = 0.0f;
 }
 
@@ -144,7 +141,7 @@ void vox_compute(void)
     if (in > 0) {
         in = pow2db(in);
     } else {
-        in = -90.0f;
+        in = -100.0f;
     }
 
     float out = -100.0f;
@@ -154,9 +151,7 @@ void vox_compute(void)
         out -= 60.0f;
     }
 
-    // Test
-    vox.in_mic_db = pow2db(vox.in_mic * avg_k);
-    vox.in_line_db = pow2db(vox.in_line * avg_k);
+    vox.in_db = in;
     vox.out_db = out;
 
     // Reset accum
@@ -208,12 +203,8 @@ void vox_restore_audio_input(uint8_t *use_internal_mic, uint8_t hmic, uint8_t li
     ext_set_audio_codec_input(RIGHT_CH, IN_2);
 }
 
-// For test
-void vox_get_levels(int8_t *db) {
-    db[0] = vox.in_mic_db;
-    db[1] = vox.in_line_db;
-    db[2] = vox.out_db;
-    db[3] = vox.on;
+float vox_get_audio_in_lvl() {
+    return vox.in_db;
 }
 
 void vox_stop(void)

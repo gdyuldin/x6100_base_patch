@@ -12,8 +12,7 @@ void vox_compute(void);
 
 void vox_restore_audio_input(uint8_t *use_internal_mic, uint8_t hmic, uint8_t line_in);
 
-// For test
-void vox_get_levels(int8_t *db);
+float vox_get_audio_in_lvl();
 
 void vox_stop(void);
 
