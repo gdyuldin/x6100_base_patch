@@ -18,6 +18,7 @@
 #include "if_shift.h"
 #include "external.h"
 #include "vox.h"
+#include "cw_peak.h"
 
 // #include <dsp/fast_math_functions.h>
 // #include <dsp/support_functions.h>
@@ -484,6 +485,7 @@ __attribute__((optimize("O1"))) void init_data(void) {
     if_shift_init();
     fm_demod_init();
     vox_init();
+    cw_peak_init();
 
     // Init frequencies for NR correct initialization
     struct filter_freqs_t *filter_frequencies = (struct filter_freqs_t *)FILTER_FREQUENCIES;

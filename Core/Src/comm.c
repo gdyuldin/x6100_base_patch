@@ -11,6 +11,7 @@
 #include "noise_reduction.h"
 #include "noise_blanker.h"
 #include "vox.h"
+#include "cw_peak.h"
 
 static uint8_t *cmp_level = (uint8_t *)CMP_LEVEL_VALUE;
 
@@ -26,6 +27,7 @@ static CCMRAM struct {
     x6100_reg_dac_adc_offsets_t dac_adc_offsets;
     x6100_reg_tx_filter_t tx_filters;
     x6100_reg_nrthr_nbw_nbthr_nre_nbe_t nr_nb;
+    x6100_reg_cw_peak_t cw_peak;
 
     int32_t filter1_low;
     int32_t filter2_low;
@@ -392,23 +394,6 @@ void process_i2c_cmd(void) {
         bool on = !((i2c_raw.if_shift >> 24) & 0xFF);
         int32_t freq = (int32_t)(i2c_raw.if_shift << 8) >> 8;
         if_shift_setup(on, freq);
-
-        // test
-        // if (on && (freq != 0)) {
-        //     uint8_t data[2];
-        //     data[0] = 0;
-        //     data[1] = 1;
-        //     ext_write_i2c((void*)0x40005800, 0x30, data, 2, 10000);
-        //     // Page 1, Register 1, D(3) = 0
-        //     data[0] = 1;
-        //     data[1] = 0;
-        //     ext_write_i2c((void*)0x40005800, 0x30, data, 2, 10000);
-        //     // Page 1, Register 2, D(0) = 0
-        //     // Page 1, Register 2, D(3) = 1
-        //     data[0] = 2;
-        //     data[1] = 4;
-        //     ext_write_i2c((void*)0x40005800, 0x30, data, 2, 10000);
-        // }
     }
 
     // VOX
@@ -420,6 +405,12 @@ void process_i2c_cmd(void) {
             i2c_raw.vox.v.ag,
             i2c_raw.vox.v.delay
         );
+    }
+
+    // CW peak
+    if (i2c_regs[x6100_cw_peak] != i2c_raw.cw_peak.i) {
+        i2c_raw.cw_peak.i = i2c_regs[x6100_cw_peak];
+        cw_peak_setup(i2c_raw.cw_peak.v.on, i2c_raw.cw_peak.v.q);
     }
 }
 

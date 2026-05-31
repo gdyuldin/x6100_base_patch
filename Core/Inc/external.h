@@ -18,6 +18,7 @@
 #define USE_OEM_SAMPLES_COUNT_VALUE_AS(x) volatile uint32_t* x = (uint32_t *)SAMPLES_COUNT_VALUE
 #define USE_OEM_NRE_AS(x) volatile uint8_t* x = (uint8_t *)NRE_FLAG
 #define USE_OEM_TX_STATE_FLAGS_AS(x) volatile uint32_t* x = (uint32_t *)TX_STATE_FLAGS
+#define USE_OEM_KEY_TONE_AS(x) volatile uint16_t* x = (uint16_t *)KEY_TONE
 
 // I2C registers values start pointer
 #define USE_OEM_I2C_REGS_AS(x) volatile uint32_t* x = (uint32_t *)I2C_REGS_ADDR

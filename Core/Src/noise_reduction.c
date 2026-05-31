@@ -2,6 +2,7 @@
 #include "offsets.h"
 #include "external.h"
 #include "utils.h"
+#include "cw_peak.h"
 
 #include "noise_reduction_data.c"
 
@@ -288,6 +289,9 @@ void nr_prepare(void) {
 
 float nr_apply(float sample)
 {
+    // Process audio with CW peak filter
+    sample = cw_peak_process(sample);
+
     USE_OEM_TX_FLAG_AS(pTx);
 
     if (*pTx) {

@@ -88,6 +88,8 @@
 #define OUT_AUDIO_INT                   (0x2000469c)
 #define TX_STATE_FLAGS                  (0x200001b8)
 
+#define KEY_TONE                        (0x200000ce)
+
 // Global tx flag 2000a676
 
 #endif

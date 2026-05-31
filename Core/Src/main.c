@@ -26,6 +26,7 @@
 #include "noise_blanker.h"
 #include "vox.h"
 #include "aic3204.h"
+#include "cw_peak.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -120,6 +121,7 @@ int main(void)
     if_shift_tx(1);
     a = am_modulation(a, b, 1.0f);
     b = fm_modulate(a);
+    b = cw_peak_process(b);
     nr_apply(a);
     nb_apply((cfloat_t){a, b});
     int32_t ai;
