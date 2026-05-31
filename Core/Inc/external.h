@@ -10,7 +10,7 @@
  * OEM variables
 */
 
-#define USE_OEM_MODULATION_AS(x) uint8_t* x = (uint8_t *)MODULATION_ADDR
+#define USE_OEM_MODULATION_AS(x) volatile uint8_t* x = (uint8_t *)MODULATION_ADDR
 #define USE_OEM_TX_FLAG_AS(x) volatile uint8_t* x = (uint8_t *)TX_FLAG_VALUE
 #define USE_OEM_SQL_AS(x) volatile uint8_t* x = (uint8_t *)SQL_VALUE
 #define USE_OEM_FM_DEPTH_OF_MOD_AS(x) volatile float* x = (float *)FM_DEPTH_OF_MOD_VALUE

@@ -15,6 +15,7 @@
 
 // AIC inputs
 #define IN_2 2
+#define IN_3 4
 
 
 CCMRAM struct {
@@ -163,6 +164,16 @@ void vox_compute(void)
         return;
     }
 
+    USE_OEM_TX_STATE_FLAGS_AS(txState);
+    if (*txState & ~(TX_STATE_VOX)) {
+        // Non-vox TX
+        *txState &= ~TX_STATE_VOX;
+        vox.running = false;
+        vox.off_counter = VOX_TX_OFF_HADOVER;
+        vox.on_counter = 0;
+        return;
+    }
+
     switch (*pMode) {
         case MOD_CW:
         case MOD_CWR:
@@ -200,7 +211,7 @@ void vox_restore_audio_input(uint8_t *use_internal_mic, uint8_t hmic, uint8_t li
     ext_set_audio_codec_input(LEFT_CH, IN_2);
 
     ext_set_mic_level(RIGHT_CH, line_in);
-    ext_set_audio_codec_input(RIGHT_CH, IN_2);
+    ext_set_audio_codec_input(RIGHT_CH, IN_2 | IN_3);
 }
 
 float vox_get_audio_in_lvl() {
