@@ -18,7 +18,7 @@
 #define IN_3 4
 
 
-CCMRAM struct {
+static CCMRAM struct {
     bool on;
     float gain_th;
     float anti_gain_th;

@@ -38,17 +38,17 @@ __attribute__((section(".rodata.patch_data"))) const float iir_coeffs_8[IIR_NUM_
 };
 
 
-static iq_iir_filter_t filter_2 __attribute((section(".ccmram")));
-static iq_iir_filter_t filter_4 __attribute((section(".ccmram")));
-static iq_iir_filter_t filter_8 __attribute((section(".ccmram")));
+static CCMRAM iq_iir_filter_t filter_2;
+static CCMRAM iq_iir_filter_t filter_4;
+static CCMRAM iq_iir_filter_t filter_8;
 
 #define BLOCK_SIZE 16
 
 static void iir_decim_iq(iq_iir_filter_t flt, float *pSrc, float *pDst, uint32_t countSrc, uint8_t N) {
-    static float srcI[BLOCK_SIZE] __attribute((section(".ccmram")));
-    static float srcQ[BLOCK_SIZE] __attribute((section(".ccmram")));
-    static float dstI[BLOCK_SIZE] __attribute((section(".ccmram")));
-    static float dstQ[BLOCK_SIZE] __attribute((section(".ccmram")));
+    static CCMRAM float srcI[BLOCK_SIZE];
+    static CCMRAM float srcQ[BLOCK_SIZE];
+    static CCMRAM float dstI[BLOCK_SIZE];
+    static CCMRAM float dstQ[BLOCK_SIZE];
 
     while (countSrc)
     {

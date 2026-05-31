@@ -37,7 +37,7 @@ __STATIC_FORCEINLINE void iq_dline_put(iq_dline_t *buf, cfloat_t val);
 __STATIC_FORCEINLINE cfloat_t iq_dline_get_delayed(iq_dline_t *buf, uint32_t delay);
 
 
-CCMRAM struct {
+static CCMRAM struct {
     // simple moving average for power
     struct {
         float buf[NB_SMA_SIZE];

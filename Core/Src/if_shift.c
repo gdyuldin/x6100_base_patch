@@ -9,12 +9,12 @@
 
 #define LUT_SIZE 1000
 
-struct {
+static CCMRAM struct {
     bool on;
     int32_t freq;
     int32_t step;
     int32_t i;
-} state __attribute((section(".ccmram")));
+} state;
 
 CCMRAM float sin_1000_table_ccm[ARRAY_SIZE(sin_1000_table)];
 

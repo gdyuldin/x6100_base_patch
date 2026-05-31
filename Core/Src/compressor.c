@@ -177,7 +177,7 @@ typedef struct {
 } data_t;
 // } __attribute__ ((aligned (16))) data_t;
 
-data_t data_arr __attribute((section(".ccmram")));
+static CCMRAM data_t data_arr;
 
 static data_t *data = &data_arr;
 

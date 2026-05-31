@@ -5,7 +5,7 @@
 
 #include "stm32f4xx_hal.h"
 
-static struct {
+static CCMRAM struct {
     cfloat_t iq_history[3];
     float avg_k;
     float hpf_env;
@@ -23,15 +23,15 @@ static struct {
     float preemp_filter_state[4];
     // TX phase
     float phase;
-} fm_demod __attribute((section(".ccmram")));
+} fm_demod;
 
-static struct {
+static CCMRAM struct {
     // rx fm_sql
     uint32_t counter;
     float iq_squared_sum;
     uint32_t iq_squared_cnt;
     float iq_rms_db;
-} fm_sql __attribute((section(".ccmram")));
+} fm_sql;
 
 
 

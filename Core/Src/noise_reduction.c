@@ -121,13 +121,13 @@ __STATIC_FORCEINLINE void step1();
 __STATIC_FORCEINLINE void step2();
 
 
-CCMRAM nr_data_t nr;
+static CCMRAM nr_data_t nr;
 
-CCMRAM float mag2[NR_MAX_MASK_SIZE];
-CCMRAM float mag2_avg[NR_MAX_MASK_SIZE];
-CCMRAM float raw_gains[NR_MAX_MASK_SIZE];
+static CCMRAM float mag2[NR_MAX_MASK_SIZE];
+static CCMRAM float mag2_avg[NR_MAX_MASK_SIZE];
+static CCMRAM float raw_gains[NR_MAX_MASK_SIZE];
 
-CCMRAM float window[NR_MAX_NFFT];
+static CCMRAM float window[NR_MAX_NFFT];
 
 
 int nr_init(void)

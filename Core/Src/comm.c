@@ -15,7 +15,7 @@
 static uint8_t *cmp_level = (uint8_t *)CMP_LEVEL_VALUE;
 
 
-struct {
+static CCMRAM struct {
     uint32_t rx_vol;
     uint32_t rfg_txpwr;
     uint32_t cmplevel_cmpe;
@@ -31,9 +31,9 @@ struct {
     int32_t filter2_low;
     int32_t filter1_high;
     int32_t filter2_high;
-} i2c_raw __attribute((section(".ccmram")));
+} i2c_raw;
 
-struct
+static CCMRAM struct
 {
     x6100_flow_fmt_t fmt;
     uint8_t fft_dec;
@@ -48,7 +48,7 @@ struct
         uint32_t sum;
         uint8_t cnt;
     } avg_freq;
-} flow __attribute((section(".ccmram")));
+} flow;
 
 // UART flow fields
 static uint32_t *flow_reserved_3 = (uint32_t*)FLOW_RESERVED_ADDR;

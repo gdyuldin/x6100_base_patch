@@ -1,14 +1,15 @@
 #include "anf.h"
 
 #include "external.h"
+#include "utils.h"
 
 
 /* ANF data */
-struct {
+static CCMRAM struct {
     bool enabled;
     float an;
     float mean_squared;
-} anf __attribute((section(".ccmram")));
+} anf;
 
 
 /**
