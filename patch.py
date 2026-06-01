@@ -92,6 +92,8 @@ patchsets = {
         'vox_restore_audio_input': 0x0802bcbe,
         'aic_setup_adc_dc_blocker': 0x0802fc6a,
 
+        'main_board_output_lvl': 0x0803465e,
+
         'build_time': 0x0803cebc,
         'external_fn': {
             'setup_biquad_filter': 0x08021764,
@@ -571,6 +573,8 @@ def main():
 
         Insert("ssb_iq_filter1", desired_len=12),
         Insert("ssb_iq_filter2", desired_len=8),
+
+        Insert("main_board_output_lvl", desired_len=2),
     ]
 
     # Check len of inserts

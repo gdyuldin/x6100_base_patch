@@ -731,6 +731,13 @@ SSB IQ filter setup
 
 
 /**
+   0803465e 0a 21           movs    r1,#0xa
+ */
+.section .insert_to_main_board_output_lvl, "ax"
+  @ replace 10 with 29 (max) for output to main board
+  movs r1, #29
+
+/**
 VOX
    08024f20 83 ed 00 0a     vstr.32 s0,[r3]=>MEGA_STRUCT.out_audio_flo
    S0 is output audio (wo vol applied)
