@@ -12,11 +12,13 @@
 #include "noise_blanker.h"
 #include "vox.h"
 #include "cw_peak.h"
+#include "aic3204.h"
 
 static uint8_t *cmp_level = (uint8_t *)CMP_LEVEL_VALUE;
 
 
 static CCMRAM struct {
+    uint32_t sple_atue_trx;
     uint32_t rx_vol;
     uint32_t rfg_txpwr;
     uint32_t cmplevel_cmpe;
@@ -308,10 +310,28 @@ static void process_custom_cmd() {
     }
 }
 
+static void setup_main_board_in(bool voice_rec) {
+    uint8_t *main_board_input_lvl = (uint8_t*)0x200000d8;
+    if (voice_rec) {
+        ext_set_aic_micpga_volume(AIC_RIGHT_CH, *main_board_input_lvl);
+        ext_set_aic_input_routes(AIC_RIGHT_CH,AIC_IN_3);
+    } else {
+        ext_set_aic_input_routes(AIC_RIGHT_CH, 0);
+    }
+
+}
+
 void process_i2c_cmd(void) {
     USE_OEM_I2C_REGS_AS(i2c_regs);
 
     process_custom_cmd();
+
+    // TRX commands
+    if (i2c_regs[x6100_sple_atue_trx] != i2c_raw.sple_atue_trx) {
+        i2c_raw.sple_atue_trx = i2c_regs[x6100_sple_atue_trx];
+        bool voice_rec = i2c_raw.sple_atue_trx & x6100_voice_rec;
+        setup_main_board_in(voice_rec);
+    }
 
     // COMP
     if (i2c_regs[x6100_cmplevel_cmpe] != i2c_raw.cmplevel_cmpe) {

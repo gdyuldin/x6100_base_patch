@@ -110,13 +110,13 @@ extern void ext_write_i2c(void *i2c_typedef, uint32_t addr, uint8_t *data, uint3
 extern void ext_setup_tx(void *struct_data, uint32_t flags, uint8_t tx)
     __attribute__((noinline, section(".setup_tx_sec")));
 
-extern void ext_setup_internal_mic_power(uint32_t val)
+extern void ext_set_aic_mic_power(uint32_t val)
     __attribute__((noinline, section(".setup_internal_mic_power_sec")));
 
-extern void ext_set_mic_level(uint32_t ch, uint32_t val)
+extern void ext_set_aic_micpga_volume(uint32_t ch, uint32_t val)
     __attribute__((noinline, section(".set_mic_level_sec")));
 
-extern void ext_set_audio_codec_input(uint32_t ch, uint32_t input)
+extern void ext_set_aic_input_routes(uint32_t ch, uint32_t input)
     __attribute__((noinline, section(".set_audio_codec_input_sec")));
 
 #endif // __EXTERNAL_H

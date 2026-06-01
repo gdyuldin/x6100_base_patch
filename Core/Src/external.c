@@ -59,14 +59,14 @@ void ext_setup_tx(void *struct_data, uint32_t flags, uint8_t tx) {
     }
 }
 
-void ext_setup_internal_mic_power(uint32_t val __unused) {
+void ext_set_aic_mic_power(uint32_t val __unused) {
     asm volatile ("NOP");
 }
 
-void ext_set_mic_level(uint32_t ch __unused, uint32_t val __unused) {
+void ext_set_aic_micpga_volume(uint32_t ch __unused, uint32_t val __unused) {
     asm volatile ("NOP");
 }
 
-void ext_set_audio_codec_input(uint32_t ch __unused, uint32_t input __unused) {
+void ext_set_aic_input_routes(uint32_t ch __unused, uint32_t input __unused) {
     asm volatile ("NOP");
 }

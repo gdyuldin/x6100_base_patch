@@ -44,13 +44,6 @@
 #define RATIO_GATE 0.25f
 #define TH_COMP (NOISE_LVL + 25.0f)
 
-/**
- * General constants
- */
-
-#define SWR_SCAN 0x00010
-
-
 
 /**
  * DC blockers constants
@@ -685,7 +678,7 @@ void configure(void) {
     nr_prepare();
 
     // Reset coefficients on SWR scan
-    bool swr_scan = i2c_regs[x6100_sple_atue_trx] & SWR_SCAN;
+    bool swr_scan = i2c_regs[x6100_sple_atue_trx] & x6100_swrscan_trx;
     if (swr_scan != data->swr_scan) {
         data->swr_scan = swr_scan;
         data->tx_amp_coeffs.outdated = true;

@@ -2,20 +2,13 @@
 #include "external.h"
 #include "utils.h"
 #include "comm.h"
+#include "aic3204.h"
 
 #include <arm_math.h>
 
 #define VOX_DECIM_K 32
 #define VOX_DLINE 64
 #define VOX_TX_OFF_HADOVER 500
-
-// AIC in channels
-#define LEFT_CH 1
-#define RIGHT_CH 2
-
-// AIC inputs
-#define IN_2 2
-#define IN_3 4
 
 
 static CCMRAM struct {
@@ -205,13 +198,13 @@ void vox_restore_audio_input(uint8_t *use_internal_mic, uint8_t hmic, uint8_t li
 {
     if (*use_internal_mic != 0) {
         *use_internal_mic = 0;
-        ext_setup_internal_mic_power(0);
+        ext_set_aic_mic_power(0);
     }
-    ext_set_mic_level(LEFT_CH, hmic);
-    ext_set_audio_codec_input(LEFT_CH, IN_2);
+    ext_set_aic_micpga_volume(AIC_LEFT_CH, hmic);
+    ext_set_aic_input_routes(AIC_LEFT_CH, AIC_IN_2);
 
-    ext_set_mic_level(RIGHT_CH, line_in);
-    ext_set_audio_codec_input(RIGHT_CH, IN_2 | IN_3);
+    ext_set_aic_micpga_volume(AIC_RIGHT_CH, line_in);
+    ext_set_aic_input_routes(AIC_RIGHT_CH, AIC_IN_2);
 }
 
 float vox_get_audio_in_lvl() {
