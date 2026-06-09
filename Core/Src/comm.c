@@ -13,6 +13,7 @@
 #include "vox.h"
 #include "cw_peak.h"
 #include "aic3204.h"
+#include "cessb.h"
 
 static uint8_t *cmp_level = (uint8_t *)CMP_LEVEL_VALUE;
 
@@ -29,7 +30,7 @@ static CCMRAM struct {
     x6100_reg_dac_adc_offsets_t dac_adc_offsets;
     x6100_reg_tx_filter_t tx_filters;
     x6100_reg_nrthr_nbw_nbthr_nre_nbe_t nr_nb;
-    x6100_reg_cw_peak_t cw_peak;
+    x6100_reg_cw_peak_cessb_t cw_peak_cessb;
 
     int32_t filter1_low;
     int32_t filter2_low;
@@ -66,6 +67,7 @@ static inline void update_tx_filter_params(uint16_t low, uint16_t high) {
     float rate = *(float *)TX_SAMPLING_RATE_12_5;
     void *flt_S = (void *)BIQUAD_TX_FLT_INST;
     setup_biquad_filter(rate, low, high, flt_S, 1);
+    cessb_update_filter(low, high);
 }
 
 static inline void flow_collecting_reset(void) {
@@ -380,19 +382,19 @@ void process_i2c_cmd(void) {
 
     // Update NR filters
     bool filter_changed = false;
-    if (i2c_regs[x6100_filter1_low] != i2c_raw.filter1_low) {
+    if (i2c_regs[x6100_filter1_low] != (uint32_t)i2c_raw.filter1_low) {
         i2c_raw.filter1_low = i2c_regs[x6100_filter1_low];
         filter_changed = true;
     }
-    if (i2c_regs[x6100_filter2_low] != i2c_raw.filter2_low) {
+    if (i2c_regs[x6100_filter2_low] != (uint32_t)i2c_raw.filter2_low) {
         i2c_raw.filter2_low = i2c_regs[x6100_filter2_low];
         filter_changed = true;
     }
-    if (i2c_regs[x6100_filter1_high] != i2c_raw.filter1_high) {
+    if (i2c_regs[x6100_filter1_high] != (uint32_t)i2c_raw.filter1_high) {
         i2c_raw.filter1_high = i2c_regs[x6100_filter1_high];
         filter_changed = true;
     }
-    if (i2c_regs[x6100_filter2_high] != i2c_raw.filter2_high) {
+    if (i2c_regs[x6100_filter2_high] != (uint32_t)i2c_raw.filter2_high) {
         i2c_raw.filter2_high = i2c_regs[x6100_filter2_high];
         filter_changed = true;
     }
@@ -427,10 +429,11 @@ void process_i2c_cmd(void) {
         );
     }
 
-    // CW peak
-    if (i2c_regs[x6100_cw_peak] != i2c_raw.cw_peak.i) {
-        i2c_raw.cw_peak.i = i2c_regs[x6100_cw_peak];
-        cw_peak_setup(i2c_raw.cw_peak.v.on, i2c_raw.cw_peak.v.q);
+    // CW peak, CESSB
+    if (i2c_regs[x6100_cw_peak_cessb] != i2c_raw.cw_peak_cessb.i) {
+        i2c_raw.cw_peak_cessb.i = i2c_regs[x6100_cw_peak_cessb];
+        cw_peak_setup(i2c_raw.cw_peak_cessb.v.cw_peak_on, i2c_raw.cw_peak_cessb.v.cw_peak_q);
+        cessb_set_params(i2c_raw.cw_peak_cessb.v.cessb_on, i2c_raw.cw_peak_cessb.v.cessb_power_up * 0.1f);
     }
 }
 

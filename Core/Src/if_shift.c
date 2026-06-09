@@ -3,6 +3,7 @@
 #include "external.h"
 
 #include "math/sin_cos_tables.c"
+#include "math/fast_math.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -45,18 +46,14 @@ void if_shift_rx(void) {
     // #pragma GCC unroll 4
     while (counter)
     {
-        float i, q, i_a, q_a;
+        float i, q, shift_real, shift_imag;
         i = iq[0];
         q = iq[1];
         // I is cos, Q is sin
-        q_a = sin_1000_table_ccm[sin_k];
-        i_a = sin_1000_table_ccm[sin_k + 250];
-        float m1 = i * i_a;
-        float m2 = q * q_a;
-        float m3 = i * q_a;
-        float m4 = q * i_a;
-        i = m1 - m2;
-        q = m3 + m4;
+        shift_imag = sin_1000_table_ccm[sin_k];
+        shift_real = sin_1000_table_ccm[sin_k + 250];
+
+        cmplx_mul(i, q, shift_real, shift_imag, &i, &q);
         iq[0] = i;
         iq[1] = q;
 

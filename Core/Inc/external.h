@@ -6,6 +6,8 @@
 
 #include <dsp/filtering_functions.h>
 
+#define UNUSED(x) ((void)x)
+
 /**
  * OEM variables
 */
@@ -84,7 +86,7 @@ extern void ext_arm_biquad_cascade_df1_f32 (arm_biquad_casd_df1_inst_f32 *S,floa
 extern void ext_arm_fill_f32(float val, float *data, uint32_t size)
     __attribute__((noinline, section(".arm_fill_f32_sec")));
 
-extern void ext_arm_copy_f32(float *pSrc, float *pDst, uint32_t blockSize)
+extern void ext_arm_copy_f32(const float *pSrc, float *pDst, uint32_t blockSize)
     __attribute__((noinline, section(".arm_copy_f32_sec")));
 
 extern float ext_arm_sin_f32(float val)
@@ -99,6 +101,9 @@ extern float ext_sqrt_f32(float val)
 
 extern void ext_arm_fir_decimate_f32(arm_fir_decimate_instance_f32 *S,float *pSrc,float *pDst,uint32_t blockSize)
     __attribute__((noinline, section(".arm_fir_decimate_f32_sec")));
+
+extern void ext_arm_fir_f32 (const arm_fir_instance_f32 *S, const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
+    __attribute__((noinline, section(".arm_fir_f32_sec")));
 
 extern void setup_biquad_filter(float sampling_rate, float freq_low, float freq_high, void *flt_S, int param_5)
     __attribute__((noinline, section(".setup_biquad_filter_sec")));

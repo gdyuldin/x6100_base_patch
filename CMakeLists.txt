@@ -69,6 +69,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/math/log10.c
     Core/Src/aic3204.c
     Core/Src/cw_peak.c
+    Core/Src/cessb.c
     # Add user sources here
 )
 

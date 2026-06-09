@@ -19,6 +19,7 @@
 #include "external.h"
 #include "vox.h"
 #include "cw_peak.h"
+#include "cessb.h"
 
 // #include <dsp/fast_math_functions.h>
 // #include <dsp/support_functions.h>
@@ -479,6 +480,7 @@ __attribute__((optimize("O1"))) void init_data(void) {
     fm_demod_init();
     vox_init();
     cw_peak_init();
+    cessb_init();
 
     // Init frequencies for NR correct initialization
     struct filter_freqs_t *filter_frequencies = (struct filter_freqs_t *)FILTER_FREQUENCIES;
@@ -949,11 +951,14 @@ void compress(float *pval)
 __attribute__((noinline)) void tx_amp(float *i, float *q) {
     USE_OEM_MODULATION_AS(pMode);
     float k;
+
     switch (*pMode)
     {
         case MOD_LSB:
-        case MOD_LSB_D:
         case MOD_USB:
+            cessb_process(i, q);
+            // fall through
+        case MOD_LSB_D:
         case MOD_USB_D:
             k = data->tx_amp_coeffs.ssb;
             break;

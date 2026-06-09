@@ -27,7 +27,7 @@ typedef enum
     x6100_dnfcnt_dnfwidth_dnfe = 24,
     x6100_cmplevel_cmpe = 25,
     x6100_if_shift = 35,
-    x6100_cw_peak,
+    x6100_cw_peak_cessb,
     x6100_tx_filter = 38,
 
     x6100_filter1_low = 44,
@@ -89,13 +89,13 @@ I2C_REG_T({
 }) x6100_reg_nrthr_nbw_nbthr_nre_nbe_t;
 
 I2C_REG_T({
-    uint8_t on: 1;
-    uint8_t q: 7;
-    uint8_t _byte2;
+    uint8_t cw_peak_on: 1;
+    uint8_t cw_peak_q: 7;
+    uint8_t cessb_on: 1;
+    uint8_t cessb_power_up: 6;
     uint8_t _byte3;
     uint8_t _byte4;
-}) x6100_reg_cw_peak_t;
-
+}) x6100_reg_cw_peak_cessb_t;
 
 typedef struct __packed {
     uint32_t lo_freq;

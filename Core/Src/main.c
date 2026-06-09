@@ -27,6 +27,7 @@
 #include "vox.h"
 #include "aic3204.h"
 #include "cw_peak.h"
+#include "cessb.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -126,6 +127,7 @@ int main(void)
     nb_apply((cfloat_t){a, b});
     int32_t ai;
     remove_iq_offset(&ai);
+    cessb_process(&a, &b);
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */

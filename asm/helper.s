@@ -353,12 +353,14 @@ _jump_to_tx_amp_wrapper:
 _tx_amp_wrapper:
   // Q signal pointer in r1
   // I signal in sp + 0x64
-  push {r0, r3, lr}
-  add  r0, sp, #TX_I_SIGNAL_OFFSET + 12
-  vpush {s14-s15}
+  push {r0}
+  add  r0, sp, #TX_I_SIGNAL_OFFSET + 4 @ plus 1 pushed registers
+  push {r1-r6, ip, lr}
+  vpush {s0-s15}
   bl _tx_amp
-  vpop {s14-s15}
-  pop {r0, r3, lr}
+  vpop {s0-s15}
+  pop {r1-r6, ip, lr}
+  pop {r0}
   bl ORIG_TX_AMP      // from orig code, interpolate Q
   b _jump_to_tx_amp_wrapper + 4
 

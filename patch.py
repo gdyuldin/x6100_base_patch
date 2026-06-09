@@ -103,6 +103,7 @@ patchsets = {
             'arm_sqrt_f32': 0x0803c0d4,
             'arm_copy_f32': 0x08034acc,
             'arm_fir_decimate_f32': 0x08035cac,
+            'arm_fir_f32': 0x080357e4,
             'arm_sin_f32': 0x08036394,
             'arm_cos_f32': 0x0803641c,
             'write_i2c': 0x08031a7c,
@@ -620,69 +621,6 @@ def main():
     start = end
     end = rodata_end
     dst[start: end] = patched_code[start: end]
-
-    # import pdb; pdb.set_trace()
-
-    # functions = InjectFunctions([
-    #     InjectFunction("init_data", patchset["init_data"]),  # fill ram area with zeros
-    #     InjectFunction("configure", patchset["configure"]),  # configure state at start of DMA handler
-    #     InjectFunction("dma_end", patchset["dma_end"]),  # code for end of the DMA handler
-    #     InjectFunction("remove_iq_offset", patchset["remove_iq_offset"]),  # Remove IQ offset from incoming data
-    #     InjectFunction("if_shift_rx", patchset["if_shift_rx"]),  # Apply IF shift
-
-    #     InjectFunction("if_shift_tx", patchset["if_shift_tx"]),  # Handle IF shift on TX
-    #     InjectFunction("compress", patchset["compress"]),  # compress, limit TX signal
-    #     InjectFunction("am_modulation", patchset["am_modulation"]),  # soft limit AM signal and modulate
-
-    #     InjectFunction("fm_modulate", patchset["fm_modulate"]),  # fm modulation prepare
-    #     InjectFunction("tx_amp", patchset["tx_amp"]),  # amp IQ according to configured TX power
-    #     InjectFunction("tx_coeff_calc", patchset["tx_coeff_calc"]),  # update coefficients for IQ on TX power change
-    #     InjectFunction("fm_demodulate", patchset["fm_demodulate"]),  # Demodulate FM
-
-    #     InjectFunction("am_fm_rx_process", patchset["am_fm_rx_process"]),  # process AM/FM rx (sql, dc blocker)
-    #     InjectFunction("anf_update", patchset["anf_update"]),  # update notch filter params
-    #     InjectFunction("nr_apply", patchset["noise_reduction"]),  # noise reduction
-    #     InjectFunction("nb_apply", patchset["noise_blanker"]),  # noise blanker
-    #     InjectFunction("copy_flow", patchset["copy_flow"]),  # copy data samples to flow with changes
-    #     InjectFunction("process_i2c_cmd", patchset["process_i2c_cmd"]),  # handle i2c commands
-
-    #     InjectFunction("vox_update", patchset["vox_update"]),  # Update in and out audio for VOX
-    #     InjectFunction("vox_restore_audio_input", patchset["vox_restore_audio_input"]),  # Restore audio input cfg on stop tx
-
-    #     InjectFunction("aic_setup_adc_dc_blocker", patchset["aic_setup_adc_dc_blocker"]),  # Setup AIC3204 input dc blocker
-
-    #     InjectAsm("skip_am_mult", patchset["skip_am_mult"]),
-    #     InjectAsm("skip_oem_nr", patchset["skip_oem_nr"]),
-    #     InjectAsm("skip_oem_nr_postprocess", patchset["skip_oem_nr_postprocess"], desired_len=6),
-
-    #     InjectAsm("ssb_iq_filter1", patchset["ssb_iq_filter1"], desired_len=12),
-    #     InjectAsm("ssb_iq_filter2", patchset["ssb_iq_filter2"], desired_len=8),
-    # ], asm_o_file=o_file, flash_offset=flash_offset, orig_fw_size=len(orig_code), rodata_start=rodata_start, rodata_end=rodata_end)
-
-    # elf = "asm/helper.elf"
-    # link_patch_helper(o_file, elf, flash_offset, **functions.sections)
-
-    # functions.setup_insert_code(elf)
-
-    # dst = bytearray(functions.new_code_end - flash_offset)
-    # # Copy original code
-    # dst[:len(orig_code)] = orig_code
-
-    # # copy new_blocks
-    # functions.copy_code(patched_code, dst)
-    # # copy rodata
-    # functions.copy_rodata(patched_code, dst)
-
-    # # copy wrappers
-    # functions.copy_wrappers(elf, dst)
-
-    # # insert jumps
-    # functions.insert_jumps(dst)
-
-    # update stack pointers
-    # for stack_p in (stack_p_0, stack_p_1):
-    #     offset = stack_p - flash_offset
-    #     dst[offset: offset + 4] = np.uint32(stack_new_p).tobytes()
 
     # Update filters
     for name, filter_params in patchset["filter_data"].items():
