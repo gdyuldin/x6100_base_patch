@@ -82,6 +82,7 @@ patchsets = {
         'nb_apply': 0x08024962,
 
         'copy_flow': 0x08033c88,
+        'update_flow_data': 0x08033d0a,
         'process_i2c_cmd': 0x0802c1a0,
         'skip_am_mult': 0x08024d20,
 
@@ -559,6 +560,7 @@ def main():
         Insert("nr_apply"),  # noise reduction
         Insert("nb_apply"),  # noise blanker
         Insert("copy_flow"),  # copy data samples to flow with changes
+        Insert("update_flow_data"),  # update flow data before sending to MAIN
         Insert("process_i2c_cmd"),  # handle i2c commands
 
         Insert("vox_update"),  # Update in and out audio for VOX

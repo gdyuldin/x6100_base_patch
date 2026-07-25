@@ -14,6 +14,7 @@
 #include "cw_peak.h"
 #include "aic3204.h"
 #include "cessb.h"
+#include "utils.h"
 
 static uint8_t *cmp_level = (uint8_t *)CMP_LEVEL_VALUE;
 
@@ -224,6 +225,13 @@ uint32_t copy_flow(float *p_Dst) {
         }
   }
   return copied;
+}
+
+
+void update_flow_data(void) {
+    x6100_flow_t *flow_data = (x6100_flow_t*)FLOW_DATA_ADDR;
+    float *vbat_mv = (float*)VBAT_MV;
+    flow_data->batcap = bat_cap_by_voltage(*vbat_mv);
 }
 
 

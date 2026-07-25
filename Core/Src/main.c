@@ -28,6 +28,7 @@
 #include "aic3204.h"
 #include "cw_peak.h"
 #include "cessb.h"
+#include "comm.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -128,6 +129,7 @@ int main(void)
     int32_t ai;
     remove_iq_offset(&ai);
     cessb_process(&a, &b);
+    update_flow_data();
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */

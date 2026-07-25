@@ -823,6 +823,37 @@ _aic_setup_adc_dc_blocker_wrapper:
 _aic_setup_adc_dc_blocker:
   nop
 
+
+
+/**
+Update flow data before sending to MAIN
+
+   08033d0a fa f7 b7 f9     bl      set_crc_cr_1                        undefined set_crc_cr_1()
+
+   set_crc_cr_1 is 0802e07c
+
+
+ */
+
+.section .insert_to_update_flow_data, "ax"
+_jump_to_update_flow_data_wrapper:
+  b _update_flow_data_wrapper
+
+.section .update_flow_data_wrapper, "ax"
+_update_flow_data_wrapper:
+
+  bl _update_flow_data
+
+  @ Original code
+  bl 0x0802e07c
+
+  b _jump_to_update_flow_data_wrapper + 4
+
+.section .update_flow_data, "ax"
+_update_flow_data:
+  nop
+
+
 @ sl -> R10
 @ fp -> R11
 @ ip -> R12

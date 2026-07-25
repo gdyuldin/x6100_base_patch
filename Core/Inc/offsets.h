@@ -53,6 +53,7 @@
 #define FLOW_SAMPLES_COUNTER            (0x20007134)
 #define FLOW_SAMPLES_CPLX               (0x20007138)
 #define FLOW_N_SAMPLES                  (0x2000dd64)
+#define FLOW_DATA_ADDR                  (0x200003ec)
 #define IQ_RF_FLOAT_IN                  (0x20005d18)
 #define RESET_FILTERS_STATE             (0x2000a6a8)
 
@@ -89,6 +90,8 @@
 #define TX_STATE_FLAGS                  (0x200001b8)
 
 #define KEY_TONE                        (0x200000ce)
+
+#define VBAT_MV                         (0x2000015c)
 
 // Global tx flag 2000a676
 

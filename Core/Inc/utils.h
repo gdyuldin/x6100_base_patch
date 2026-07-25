@@ -30,6 +30,8 @@ float soft_limiter(float val, float max_val);
 
 float dc_blocker(float val, float k, struct dc_blocker_t *dc);
 
+uint8_t bat_cap_by_voltage(float bat_mv);
+
 
 /**
  * Db <-> linear conversion

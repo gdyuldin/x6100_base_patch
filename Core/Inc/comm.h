@@ -97,7 +97,7 @@ I2C_REG_T({
     uint8_t _byte4;
 }) x6100_reg_cw_peak_cessb_t;
 
-typedef struct __packed {
+typedef struct __attribute__((packed, aligned(4))) {
     uint32_t lo_freq;
     uint8_t flow_fmt;
     uint8_t flow_seq_n: 4;
@@ -109,7 +109,46 @@ typedef struct __packed {
     uint32_t _pad2;
 } flow_info_t;
 
+
+typedef struct __attribute__((packed, aligned(4)))
+{
+    bool resync : 1;
+    bool tx : 1;
+    bool atu_status : 1;
+    bool vext : 1;
+    bool charging: 1;
+    uint32_t : 27;
+} x6100_flow_flags_t;
+
+
+typedef struct __attribute__((packed, aligned(4)))
+{
+    uint32_t magic;
+    float samples[512][2];
+
+    x6100_flow_flags_t flag;
+    uint8_t reserved_1;
+    uint8_t tx_power;
+    uint8_t vswr;
+    uint8_t alc_level;
+    uint8_t vext;
+    uint8_t vbat;
+    uint8_t batcap;
+    uint8_t reserved_2;
+    uint32_t atu_params;
+    flow_info_t flow_info;
+    uint32_t hkey;
+
+    uint32_t crc;
+} x6100_flow_t;
+
+
 void comm_init(void);
+
+/**
+ * Update flow before sending to main. Designed to replace battery percentage with a LUT computed from voltage
+ */
+void update_flow_data(void);
 
 void set_flow_params(x6100_flow_fmt_t fmt);
 void flow_collecting_at_end(void);
