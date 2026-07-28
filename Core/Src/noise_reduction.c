@@ -184,11 +184,16 @@ void nr_setup_threshold(float nrthr) {
     }
     if (nr.thr != nrthr) {
         nr.thr = nrthr;
+        // depth range: 0 ... 2
         float depth = nr.thr / 30.0f;
+        // Alpha range 1.2 ... 9.2
         nr.alpha = 1.2f + (depth * 4.0f);
         // float beta = 0.1f - (depth * 0.08f);
         // beta = MAX(beta, 0.01f);
+        // Range 0.15 ... 0.0015
         nr.beta = 0.15f / pow10f_c(depth);
+        // Lambda_G is temporal smoothing coefficient
+        // Range: 0.5 - 0.3
         nr.lambda_g = 0.5f + (depth * 0.2f);
         nr.lambda_g = (1.0f - MIN(nr.lambda_g, 0.7f));
 

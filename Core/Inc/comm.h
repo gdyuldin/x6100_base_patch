@@ -51,7 +51,7 @@ enum
     x6100_iptt = 0x40000
 };
 
-typedef enum __attribute__((__packed__))
+typedef enum __attribute__((packed))
 {
     x6100_flow_fp32 = 0,
     x6100_flow_bf16,
