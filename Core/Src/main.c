@@ -130,6 +130,7 @@ int main(void)
     remove_iq_offset(&ai);
     cessb_process(&a, &b);
     update_flow_data();
+    aic_pll_setup(NULL, 123);
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */

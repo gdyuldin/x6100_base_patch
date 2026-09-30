@@ -854,6 +854,68 @@ _update_flow_data:
   nop
 
 
+// AIC_pll_setup
+/*
+    0802fc5a ff f7 4f fb     bl      setup_aic_sampling_rate             undefined setup_aic_sa
+*/
+
+.section .insert_to_aic_pll_setup, "ax"
+_jump_to_aic_pll_setup_wrapper:
+  bl _aic_pll_setup
+
+.section .aic_pll_setup_wrapper, "ax"
+_aic_pll_setup_wrapper:
+  nop
+
+.section .aic_pll_setup, "ax"
+_aic_pll_setup:
+  nop
+
+
+
+/*
+set CLKOUT M divider from 2 to 4 (1)
+
+   0802fca8 48 f2 1a 2c     movw    r12,#0x821a
+
+replace 82h with 84h (81h)
+
+ */
+
+.section .insert_to_aic_clkout_m_mod, "ax"
+  movw    r12,#0x811a
+
+
+/*
+Set CS4272 ratio bit for MCLK > 25.6 MHz
+
+   08030444 48 f2 01 17     movw    r7,#0x8101
+
+replace 81h with A1h
+*/
+.section .insert_to_cs_change_ratio_bit, "ax"
+  movw    r7,#0xa101
+
+
+/*
+
+   080325dc c0 f2 00 03     movt    r3,#0x100
+
+@ Replace 100h with 0h (no pull on gpio i2s)
+
+
+   080325d4 40 f2 02 23     movw    r3,#0x302
+
+@ Replace 302h with202h for high speed gpio (instead of very high speed)
+
+ */
+
+.section .insert_to_i2s_gpio_no_pull, "ax"
+  movt    r3,#0x0
+
+.section .insert_to_i2s_gpio_high_speed, "ax"
+  movw    r3,#0x202
+
 @ sl -> R10
 @ fp -> R11
 @ ip -> R12

@@ -80,7 +80,7 @@ static inline void flow_collecting_reset(void) {
     flow.read_p = flow.data;
     flow.avg_freq.cnt = 0;
     flow.avg_freq.sum = 0;
-    iirdecim_reset();
+    iirdecim_reset(flow.fft_dec);
 }
 
 static inline void *copy_flow_f32(float *pSrc, float *pDst, size_t n_src_cmplx_samples) {
@@ -247,7 +247,7 @@ void flow_collecting_at_end(void) {
             // Remember freq and fmt at filling 1st block
             flow.info.flow_fmt = flow.fmt;
             flow.info.lo_freq = *freq_plus_rit;
-            iirdecim_reset();
+            iirdecim_reset(flow.fft_dec);
         }
 
         ssize_t offset = -1;
@@ -424,6 +424,12 @@ void process_i2c_cmd(void) {
         bool on = !((i2c_raw.if_shift >> 24) & 0xFF);
         int32_t freq = (int32_t)(i2c_raw.if_shift << 8) >> 8;
         if_shift_setup(on, freq);
+
+        // if (on) {
+        //     // sleep for cs
+        //     uint32_t *gpiog_odr = (uint32_t *)0x40021814;
+        //     *gpiog_odr &= ~((uint32_t)0x100U);
+        // }
     }
 
     // VOX

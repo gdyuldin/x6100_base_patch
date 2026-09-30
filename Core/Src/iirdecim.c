@@ -77,23 +77,38 @@ void iirdecim_init()
         filter_2[j].S.numStages = IIR_NUM_STAGES;
         filter_2[j].S.pCoeffs = iir_coeffs_2;
         filter_2[j].S.pState = filter_2[j].state;
+
         filter_4[j].S.numStages = IIR_NUM_STAGES;
         filter_4[j].S.pCoeffs = iir_coeffs_4;
         filter_4[j].S.pState = filter_4[j].state;
+
         filter_8[j].S.numStages = IIR_NUM_STAGES;
         filter_8[j].S.pCoeffs = iir_coeffs_8;
         filter_8[j].S.pState = filter_8[j].state;
     }
-    iirdecim_reset();
+    iirdecim_reset(1);
+    iirdecim_reset(2);
+    iirdecim_reset(3);
 }
 
-void iirdecim_reset()
+void iirdecim_reset(uint8_t fft_dec)
 {
     for (uint8_t j = 0; j < 2; j++)
     {
-        ext_arm_fill_f32(0.0f, filter_2[j].state, ARRAY_SIZE(filter_2[j].state));
-        ext_arm_fill_f32(0.0f, filter_4[j].state, ARRAY_SIZE(filter_4[j].state));
-        ext_arm_fill_f32(0.0f, filter_8[j].state, ARRAY_SIZE(filter_8[j].state));
+        switch (fft_dec) {
+            case 1:
+                ext_arm_fill_f32(0.0f, filter_2[j].state, ARRAY_SIZE(filter_2[j].state));
+                break;
+            case 2:
+                ext_arm_fill_f32(0.0f, filter_4[j].state, ARRAY_SIZE(filter_4[j].state));
+                break;
+            case 3:
+                ext_arm_fill_f32(0.0f, filter_8[j].state, ARRAY_SIZE(filter_8[j].state));
+                break;
+
+            default:
+                break;
+        }
     }
 }
 

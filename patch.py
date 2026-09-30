@@ -63,6 +63,7 @@ patchsets = {
         'configure': 0x0802432c,
         'dma_end': 0x08025b72,
         'remove_iq_offset': 0x0802492c,
+        'aic_pll_setup': 0x0802fc5a,
         # 'apply_rx_iq_offset': 0x0802494c,
         'if_shift_rx': 0x08024ac8,
         'if_shift_tx': 0x0802d320,
@@ -94,6 +95,11 @@ patchsets = {
         'aic_setup_adc_dc_blocker': 0x0802fc6a,
 
         'main_board_output_lvl': 0x0803465e,
+        'aic_clkout_m_mod': 0x0802fca8,
+        'cs_change_ratio_bit': 0x08030444,
+
+        'i2s_gpio_no_pull': 0x080325dc,
+        'i2s_gpio_high_speed': 0x080325d4,
 
         'build_time': 0x0803cebc,
         'external_fn': {
@@ -545,6 +551,7 @@ def main():
         Insert("dma_end"),  # code for end of the DMA handler
         Insert("remove_iq_offset"),  # Remove IQ offset from incoming data
         Insert("if_shift_rx"),  # Apply IF shift
+        Insert("aic_pll_setup"),
 
         Insert("if_shift_tx"),  # Handle IF shift on TX
         Insert("compress"),  # compress, limit TX signal
@@ -578,6 +585,11 @@ def main():
         Insert("ssb_iq_filter2", desired_len=8),
 
         Insert("main_board_output_lvl", desired_len=2),
+        # Insert("aic_clkout_m_mod"),
+        # Insert("cs_change_ratio_bit"),
+
+        Insert("i2s_gpio_no_pull"),
+        Insert("i2s_gpio_high_speed"),
     ]
 
     # Check len of inserts
@@ -657,7 +669,7 @@ def main():
         dst[hpf_addr:hpf_addr+l] = data
 
 
-    ver = "r12"
+    ver = "r13"
     build_time = ver.encode() + bytes(11 - len(ver))
     assert len(build_time) < 12
     build_time_addr = patchset['build_time'] - flash_offset

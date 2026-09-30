@@ -496,26 +496,53 @@ __STATIC_FORCEINLINE void step2() {
     uint32_t *nr_out_write = (uint32_t *)NR_OUT_WRITE;
     float *nr_out_buf = (float *)NR_OUT_BUF;
 
+    USE_OEM_KEY_TONE_AS(keyTone);
+    USE_OEM_MODULATION_AS(pMode);
+    size_t key_bin = 0;
+    float alpha_key = nr.alpha;
+    float beta_key = nr.beta;
+    if (*pMode == MOD_CW || *pMode == MOD_CWR) {
+        key_bin = *keyTone * nr.n_fft_next / NR_SAMPLING_RATE;
+        alpha_key *= 0.2f;
+        beta_key *= 0.1f;
+    }
+
     /* Compute correction */
     ext_arm_fill_f32(0.0f, raw_gains, nr.filter_high_bin + 1);
     #pragma GCC unroll 4
     // #pragma GCC ivdep
     for (size_t i = nr.filter_low_bin; i < nr.filter_high_bin; i++)
     {
-        float gain = 1.0f - (nr.alpha * nr.noise_psd[i]) / (mag2_avg[i] + 1e-15f);
+        float alpha = nr.alpha;
+        float beta = nr.beta;
+        if (i == key_bin) {
+            alpha = alpha_key;
+            beta = beta_key;
+        }
+        float gain = 1.0f - (alpha * nr.noise_psd[i]) / (mag2_avg[i] + 1e-15f);
         // gain = MAX(gain, beta);
         // gain = MIN(gain, 1.0f);
         // gain = CLIP(gain, beta, 1.0f);
-        gain = soft_clip(gain, nr.beta, nr.ptp, nr.ptp_inv);
+        gain = soft_clip(gain, beta, nr.ptp, nr.ptp_inv);
         // gain = sqrtf(gain);
         arm_sqrt_f32(gain, &gain);
         // __ASM("VSQRT.F32 %0,%1" : "=t"(gain) : "t"(gain));
         // freq smoothing
         float g05 = gain * 0.5f;
         float g025 = gain * 0.25f;
-        raw_gains[i] += g05;
-        raw_gains[i - 1] += g025;
-        raw_gains[i + 1] += g025;
+        if (key_bin == i) {
+            raw_gains[i] = gain;
+        } else if (key_bin - 1 == i) {
+            raw_gains[i] += g05 + g025;
+            raw_gains[i - 1] += g025;
+        } else if (key_bin + 1 == i) {
+            raw_gains[i] += g05 + g025;
+            raw_gains[i + 1] += g025;
+        } else {
+            raw_gains[i] += g05;
+            raw_gains[i - 1] += g025;
+            raw_gains[i + 1] += g025;
+        }
     }
 
     /* Temporal smoothing, applying gain */
@@ -523,7 +550,11 @@ __STATIC_FORCEINLINE void step2() {
     // #pragma GCC ivdep
     for (size_t i = nr.filter_low_bin - 1; i < (nr.filter_high_bin + 1); i++)
     {
-        nr.gain_smooth[i] += (raw_gains[i] - nr.gain_smooth[i]) * nr.lambda_g;
+        float lambda_g = nr.lambda_g;
+        if (i == key_bin) {
+            lambda_g = 0.8f;
+        }
+        nr.gain_smooth[i] += (raw_gains[i] - nr.gain_smooth[i]) * lambda_g;
         nr.Z[i * 2] *= nr.gain_smooth[i];
         nr.Z[i * 2 + 1] *= nr.gain_smooth[i];
     }
