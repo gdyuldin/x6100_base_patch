@@ -32,7 +32,7 @@ Better TX audio, FM, filters, NR/NB, VOX, IF-shift and spectrum flow — works w
 | `V1.1.6 221112001` | `firmwares/X6100_BBFW_V1.1.6_221112001_r*.xgf` | older BBFW |
 | `V1.1.6 230307001` | `firmwares/X6100_BBFW_V1.1.6_230307001_r*.xgf` | recommended, newest DSP |
 
-Check yours on the radio: **System info → BASE**. Pick the highest `rN` for your date. Prebuilt files are in [`firmwares/`](firmwares/) and on the [releases](https://github.com/gdyuldin/x6100_base_patch/releases) page.
+Check yours on the radio: **System info → BASE**. Pick the highest `rN` for your date. Older prebuilt files are in [`firmwares/`](firmwares/); latest r10+ builds ship via the [releases](https://github.com/gdyuldin/x6100_base_patch/releases) page (maintainer decision: new `.xgf` files live in releases, not in-repo). The installer below downloads the latest release automatically if no matching local file exists.
 
 ---
 
@@ -75,7 +75,7 @@ Prefer files on disk? Follow Step 1 below, then run the script from the folder.
 3. Unzip the file. You get a folder like `x6100_base_patch-1.1.6` containing:
    - `tools/install.sh` (for Linux / Mac)
    - `tools/install.ps1` (for Windows)
-   - `firmwares/` (the `.xgf` firmware files — pick the one matching your BASE date, highest `rN`)
+   - `firmwares/` (older `.xgf` files; latest r10+ comes from releases — the installer downloads it automatically)
 
 **Way 2 — Git clone (if you already use git):**
 
@@ -86,7 +86,7 @@ cd x6100_base_patch
 
 **Way 3 — Just 2 files (smallest download):**
 
-1. Download your `.xgf` from [`firmwares/`](firmwares/) (click the file → `Download raw file` button) or from [releases](https://github.com/gdyuldin/x6100_base_patch/releases).
+1. Download your `.xgf` from [releases](https://github.com/gdyuldin/x6100_base_patch/releases) (Assets section; older files are also in [`firmwares/`](firmwares/)).
 2. Download the script: `tools/install.sh` (Linux/Mac) or `tools/install.ps1` (Windows) the same way (`Download raw file`).
 3. Put both in one folder, e.g. `Downloads/x6100/`. When you run the script, point it at the file (see Step 3 examples with `--file` / `-File`).
 
@@ -145,7 +145,7 @@ It may ask: pick a firmware number (Enter = recommended), confirm `Upload? [Y/n]
 Skip the questions (replace IP/filename with yours):
 
 ```bash
-./tools/install.sh --ip 192.168.1.100 --file firmwares/X6100_BBFW_V1.1.6_230307001_r13.xgf --yes
+./tools/install.sh --ip 192.168.1.100 --file ~/Downloads/X6100_BBFW_V1.1.6_230307001_r13.xgf --yes
 ```
 
 **Windows (if you didn't use `install.bat`):**
@@ -157,7 +157,7 @@ Skip the questions (replace IP/filename with yours):
 Same wizard: auto-find, firmware menu, `Upload? [Y/n]`, password `123` when asked. Skip-the-questions version:
 
 ```powershell
-.\tools\install.ps1 -Ip 192.168.1.100 -File firmwares\X6100_BBFW_V1.1.6_230307001_r13.xgf -Yes
+.\tools\install.ps1 -Ip 192.168.1.100 -File $HOME\Downloads\X6100_BBFW_V1.1.6_230307001_r13.xgf -Yes
 ```
 
 A good upload looks like this: `Found your radio at: ...`, SSH check passes, a progress bar moves, then `ls -lh /usr/firmware/xxxx.xgf` prints the file. If it stops with an error, read it — it usually means wrong WiFi, wrong IP, or wrong password.
@@ -202,7 +202,7 @@ If the file is not listed, it landed in the wrong folder. Re-run the script (it 
 
 ## Option B — Manual install (WinSCP / FileZilla / `scp`)
 
-1. Download a `.xgf` from [`firmwares/`](firmwares/) or [releases](https://github.com/gdyuldin/x6100_base_patch/releases).
+1. Download a `.xgf` from [releases](https://github.com/gdyuldin/x6100_base_patch/releases) (Assets section).
 2. Boot stock firmware (no SD card).
 3. Connect radio to WiFi.
 4. Copy file to radio with SCP/SFTP:
