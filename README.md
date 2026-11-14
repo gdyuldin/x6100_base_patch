@@ -226,15 +226,15 @@ Get the builds from the [releases page](https://github.com/gdyuldin/x6100_base_p
 
 **WiFi + copy files (same flow, just copy instead of editing):**
 
-[![WiFi and file copy](https://img.youtube.com/vi/9oviNzXT-v8/hqdefault.jpg)](https://www.youtube.com/watch?v=9oviNzXT-v8)
+<a href="https://www.youtube.com/watch?v=9oviNzXT-v8"><img src="https://img.youtube.com/vi/9oviNzXT-v8/hqdefault.jpg" width="320" alt="WiFi and file copy"></a>
 
 **TX level calibration (required after patching):**
 
-[![TX calibration](https://img.youtube.com/vi/zoN6uAewPK0/hqdefault.jpg)](https://www.youtube.com/watch?v=zoN6uAewPK0)
+<a href="https://www.youtube.com/watch?v=zoN6uAewPK0"><img src="https://img.youtube.com/vi/zoN6uAewPK0/hqdefault.jpg" width="320" alt="TX calibration"></a>
 
 **Unwanted RX after TX fix demo (r7):**
 
-[![RX after TX fix](https://img.youtube.com/vi/ljKug5yumMA/hqdefault.jpg)](https://www.youtube.com/watch?v=ljKug5yumMA)
+<a href="https://www.youtube.com/watch?v=ljKug5yumMA"><img src="https://img.youtube.com/vi/ljKug5yumMA/hqdefault.jpg" width="320" alt="RX after TX fix"></a>
 
 ---
 
