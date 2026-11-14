@@ -200,6 +200,14 @@ If the file is not listed, it landed in the wrong folder. Re-run the script (it 
 
 ---
 
+## Option A2 — GUI app (Windows / Linux / macOS / Android, optional)
+
+Same job as the script above, with a window: it finds the radio on WiFi, you pick the `.xgf`, it copies to `/usr/firmware`. Flashing is still done on the radio menu.
+
+Get the builds from the [releases page](https://github.com/gdyuldin/x6100_base_patch/releases) (`X6100-Uploader` assets), or run from source - see [`app/`](app/) (desktop, needs Python + `pip install -r app/requirements.txt`) and [`app-android/`](app-android/) (phone, needs Buildozer). The app downloads the firmware from this repo's releases, so no files to pick by hand.
+
+---
+
 ## Option B — Manual install (WinSCP / FileZilla / `scp`)
 
 1. Download a `.xgf` from [releases](https://github.com/gdyuldin/x6100_base_patch/releases) (Assets section).
