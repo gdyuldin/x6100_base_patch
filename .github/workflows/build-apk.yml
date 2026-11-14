@@ -1,4 +1,7 @@
 name: android-apk
+# Merge-safe: only runs on v* tags (uploader releases). Upstream firmware
+# uses r* tags, which never trigger this job and are never modified.
+# The release step only attaches the .apk to the v* release.
 on:
   workflow_dispatch:
   push:
