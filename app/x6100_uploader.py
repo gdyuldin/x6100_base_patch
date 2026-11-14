@@ -25,7 +25,7 @@ from x6100_core import (
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("X6100 Base Patch Uploader")
+        self.title("Xiegu X6100 Base Patch Firmware Uploader")
         self.resizable(True, True)
         self.jobs = queue.Queue()
         self.stop_scan = threading.Event()
@@ -35,13 +35,7 @@ class App(tk.Tk):
         self._refresh_fw_menu()
 
     def _build(self):
-        menubar = tk.Menu(self)
-        helpmenu = tk.Menu(menubar, tearoff=0)
-        helpmenu.add_command(label="Manual steps", command=self._manual)
-        helpmenu.add_command(label="About", command=self._about)
-        menubar.add_cascade(label="Help", menu=helpmenu)
-        self.configure(menu=menubar)
-        self.title("X6100 Base Patch Uploader")
+        self.title("Xiegu X6100 Base Patch Firmware Uploader")
         self.geometry("660x640")
         self._style()
 
@@ -50,7 +44,15 @@ class App(tk.Tk):
 
         head = tk.Frame(wrap, background="#1c2330")
         head.pack(fill="x", pady=(0, 2))
-        title_lbl = tk.Label(head, text="X6100 Base Patch Uploader",
+        try:
+            ip = self._icon_path()
+            if ip:
+                self._logo = tk.PhotoImage(file=ip).subsample(2, 2)
+                tk.Label(head, image=self._logo, background="#1c2330").pack(
+                    side="left", padx=(10, 0), pady=4)
+        except Exception:
+            pass
+        title_lbl = tk.Label(head, text="Xiegu X6100 Base Patch Firmware Uploader",
                              background="#1c2330", foreground="white",
                              font=("TkDefaultFont", 11, "bold"))
         title_lbl.pack(side="left", padx=10, pady=7)
@@ -158,11 +160,26 @@ class App(tk.Tk):
         ttk.Label(wrap, text="After upload: System settings → Firmware upgrade → pick file → Update. Never flash on battery.",
                   wraplength=600, style="Dim.TLabel").pack(anchor="w", pady=(6, 0))
 
+    def _icon_path(self):
+        from x6100_core import app_dir
+        base = app_dir()
+        for d in (os.path.join(os.path.dirname(base), "assets"),
+                  os.path.join(base, "assets"),
+                  os.path.join(os.getcwd(), "assets")):
+            p = os.path.join(d, "x6100-icon-64.png")
+            if os.path.isfile(p):
+                return p
+        return ""
+
     def _about(self):
         self._dlg("info", "About", ABOUT_TEXT)
 
     def _manual(self):
         self._dlg("info", "What you will do manually", start_checklist())
+
+    def _show_startup(self):
+        self._about()
+        self._manual()
 
     def _dlg(self, kind, title, text):
         colors = {"info": "#1f6feb", "done": "#1a7f37", "error": "#cf222e"}
@@ -330,5 +347,5 @@ class App(tk.Tk):
 if __name__ == "__main__":
     app = App()
     if "--no-welcome" not in sys.argv:
-        app.after(400, app._manual)  # checklist first, before any use
+        app.after(400, app._show_startup)  # About first, manual steps second
     app.mainloop()

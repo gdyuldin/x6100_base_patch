@@ -9,11 +9,18 @@ block_cipher = None
 repo = os.path.abspath(os.path.join(SPECPATH, ".."))
 fw_dir = os.path.join(repo, "firmwares")
 
+datas = []
+if os.path.isdir(fw_dir):
+    datas.append((fw_dir, "firmwares"))
+icon64 = os.path.join(repo, "assets", "x6100-icon-64.png")
+if os.path.isfile(icon64):
+    datas.append((icon64, "assets"))
+
 a = Analysis(
     [os.path.join(repo, "app", "x6100_uploader.py")],
     pathex=[os.path.join(repo, "app")],
     binaries=[],
-    datas=[(fw_dir, "firmwares")] if os.path.isdir(fw_dir) else [],
+    datas=datas,
     hiddenimports=["paramiko", "cryptography", "bcrypt", "nacl"],
     excludes=["kivy"],
     noarchive=False,
@@ -22,6 +29,7 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz, a.scripts, a.binaries, a.zipfiles, a.datas, [],
     name="X6100-Uploader",
+    icon=os.path.join(repo, "assets", "x6100-icon.ico"),
     console=False,
     upx=False,
 )

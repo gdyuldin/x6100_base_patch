@@ -7,13 +7,13 @@ jobs:
   build:
     permissions:
       contents: write
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: sudo apt update && sudo apt install -y openjdk-17-jdk unzip autoconf automake autopoint libtool libtool-bin pkg-config wget
+      - run: sudo apt update && sudo apt install -y openjdk-17-jdk unzip autoconf automake autopoint libtool libtool-bin libltdl-dev pkg-config wget
       - name: Install Android SDK
         run: |
           export ANDROID_HOME="$HOME/android-sdk"
@@ -37,5 +37,5 @@ jobs:
       - uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          name: X6100 Base Patch Uploader ${{ github.ref_name }}
+          name: Xiegu X6100 Base Patch Firmware Uploader ${{ github.ref_name }}
           files: app-android/bin/*.apk
