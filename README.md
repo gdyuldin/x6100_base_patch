@@ -200,6 +200,16 @@ If the file is not listed, it landed in the wrong folder. Re-run the script (it 
 
 ---
 
+## Option A2 — GUI app (Windows / Linux / macOS / Android, optional)
+
+Same job as the script above, with a window: it finds the radio on WiFi, you pick the `.xgf`, it copies to `/usr/firmware`. Flashing is still done on the radio menu.
+
+Get the builds from the [releases page](https://github.com/gdyuldin/x6100_base_patch/releases) (`X6100-Uploader` assets), or run from source - see [`app/`](app/) (desktop, needs Python + `pip install -r app/requirements.txt`) and [`app-android/`](app-android/) (phone, needs Buildozer). The app downloads the firmware from this repo's releases, so no files to pick by hand.
+
+<img src="app-android/screenshot-phone.jpg" width="300" alt="Android app">
+
+---
+
 ## Option B — Manual install (WinSCP / FileZilla / `scp`)
 
 1. Download a `.xgf` from [releases](https://github.com/gdyuldin/x6100_base_patch/releases) (Assets section).
@@ -216,15 +226,15 @@ If the file is not listed, it landed in the wrong folder. Re-run the script (it 
 
 **WiFi + copy files (same flow, just copy instead of editing):**
 
-[![WiFi and file copy](https://img.youtube.com/vi/9oviNzXT-v8/hqdefault.jpg)](https://www.youtube.com/watch?v=9oviNzXT-v8)
+<a href="https://www.youtube.com/watch?v=9oviNzXT-v8"><img src="https://img.youtube.com/vi/9oviNzXT-v8/hqdefault.jpg" width="320" alt="WiFi and file copy"></a>
 
 **TX level calibration (required after patching):**
 
-[![TX calibration](https://img.youtube.com/vi/zoN6uAewPK0/hqdefault.jpg)](https://www.youtube.com/watch?v=zoN6uAewPK0)
+<a href="https://www.youtube.com/watch?v=zoN6uAewPK0"><img src="https://img.youtube.com/vi/zoN6uAewPK0/hqdefault.jpg" width="320" alt="TX calibration"></a>
 
 **Unwanted RX after TX fix demo (r7):**
 
-[![RX after TX fix](https://img.youtube.com/vi/ljKug5yumMA/hqdefault.jpg)](https://www.youtube.com/watch?v=ljKug5yumMA)
+<a href="https://www.youtube.com/watch?v=ljKug5yumMA"><img src="https://img.youtube.com/vi/ljKug5yumMA/hqdefault.jpg" width="320" alt="RX after TX fix"></a>
 
 ---
 
