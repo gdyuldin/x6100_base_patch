@@ -159,18 +159,27 @@ def discover_radios(port=22, log=None, stop=None):
 
 
 def fetch_latest_asset_url():
+    """URL + name of the newest .xgf asset across this repo's releases.
+
+    Scans the release list rather than /releases/latest, because the same repo
+    also publishes GUI uploader binaries as releases and one of those can be
+    the newest; /releases/latest may then point at a release with no .xgf.
+    """
     for repo in (REPO, FALLBACK_REPO):
         try:
             req = urllib.request.Request(
-                f"https://api.github.com/repos/{repo}/releases/latest",
+                f"https://api.github.com/repos/{repo}/releases?per_page=30",
                 headers={"User-Agent": "x6100-uploader", "Accept": "application/vnd.github+json"},
             )
             with urllib.request.urlopen(req, timeout=20) as r:
-                data = json.load(r)
-            for a in data.get("assets", []):
-                if a.get("name", "").endswith(".xgf"):
-                    return a["browser_download_url"], a["name"]
-        except OSError:
+                releases = json.load(r)
+            for data in releases:
+                if data.get("draft"):
+                    continue
+                for a in data.get("assets", []):
+                    if a.get("name", "").endswith(".xgf"):
+                        return a["browser_download_url"], a["name"]
+        except (OSError, ValueError):
             continue
     raise RuntimeError("GitHub releases unreachable (check internet)")
 

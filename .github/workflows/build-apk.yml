@@ -1,11 +1,26 @@
 name: android-apk
-# Merge-safe: only runs on v* tags (uploader releases). Upstream firmware
-# uses r* tags, which never trigger this job and are never modified.
-# The release step only attaches the .apk to the v* release.
+# Uploader binaries only. Upstream firmware releases use r* tags and are never
+# touched: this runs on v*/app-v* tags and on manual dispatch, attaches the APK
+# to RELEASE_TAG, and uses make_latest: false so the newest r* release stays
+# "Latest".
+
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create or update (APK lands on that release)"
+        required: true
+        default: "uploader-latest"
   push:
-    tags: ["v*"]
+    tags: ["v*", "app-v*"]
+
+permissions:
+  contents: write
+
+env:
+  # Tag pushes use the pushed tag; manual runs use the input (default uploader-latest).
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
 jobs:
   build:
     permissions:
@@ -16,7 +31,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: sudo apt update && sudo apt install -y openjdk-17-jdk unzip autoconf automake autopoint libtool libtool-bin libltdl-dev pkg-config wget
+      - name: Install build dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y openjdk-17-jdk unzip zip git ccache cmake wget \
+            autoconf automake autopoint libtool libtool-bin libltdl-dev pkg-config \
+            zlib1g-dev libffi-dev libssl-dev libncurses-dev
       - name: Install Android SDK
         run: |
           export ANDROID_HOME="$HOME/android-sdk"
@@ -37,8 +57,10 @@ jobs:
           name: X6100-Uploader.apk
           path: app-android/bin/*.apk
           if-no-files-found: error
+      # make_latest: false keeps the newest firmware release (r*) as "Latest".
       - uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
         with:
-          name: Xiegu X6100 Base Patch Firmware Uploader ${{ github.ref_name }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Xiegu X6100 Base Patch Firmware Uploader ${{ env.RELEASE_TAG }}
+          make_latest: false
           files: app-android/bin/*.apk

@@ -15,6 +15,10 @@ if os.path.isdir(fw_dir):
 icon64 = os.path.join(repo, "assets", "x6100-icon-64.png")
 if os.path.isfile(icon64):
     datas.append((icon64, "assets"))
+icon_ico = os.path.join(repo, "assets", "x6100-icon.ico")
+icon = icon_ico if os.path.isfile(icon_ico) else None
+if icon is None:
+    print("warning: assets/x6100-icon.ico missing, building without a custom icon")
 
 a = Analysis(
     [os.path.join(repo, "app", "x6100_uploader.py")],
@@ -29,7 +33,7 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz, a.scripts, a.binaries, a.zipfiles, a.datas, [],
     name="X6100-Uploader",
-    icon=os.path.join(repo, "assets", "x6100-icon.ico"),
+    icon=icon,
     console=False,
     upx=False,
 )

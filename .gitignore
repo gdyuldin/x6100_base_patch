@@ -3,3 +3,15 @@ build
 
 __pycache__/
 *.pyc
+
+# GUI uploader build outputs
+dist/
+AppDir/
+*.AppImage
+*.icns
+*.iconset/
+dmg-stage/
+app-android/bin/
+app-android/.buildozer/
+app-android/x6100-icon.png
+app-android/x6100_core.py

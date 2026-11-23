@@ -204,7 +204,7 @@ If the file is not listed, it landed in the wrong folder. Re-run the script (it 
 
 Same job as the script above, with a window: it finds the radio on WiFi, you pick the `.xgf`, it copies to `/usr/firmware`. Flashing is still done on the radio menu.
 
-Get the builds from the [releases page](https://github.com/gdyuldin/x6100_base_patch/releases) (`X6100-Uploader` assets), or run from source - see [`app/`](app/) (desktop, needs Python + `pip install -r app/requirements.txt`) and [`app-android/`](app-android/) (phone, needs Buildozer). The app downloads the firmware from this repo's releases, so no files to pick by hand.
+Get the builds from the [releases page](https://github.com/gdyuldin/x6100_base_patch/releases) (`X6100-Uploader` assets; the macOS build is Apple Silicon - run from source on an Intel Mac), or run from source - see [`app/`](app/) (desktop, needs Python + `pip install -r app/requirements.txt`) and [`app-android/`](app-android/) (phone, needs Buildozer). The app downloads the firmware from this repo's releases, so no files to pick by hand.
 
 <img src="app-android/screenshot-phone.jpg" width="300" alt="Android app">
 
