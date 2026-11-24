@@ -32,16 +32,16 @@ jobs:
           - os: windows-latest
             out: dist/X6100-Uploader.exe
             asset: X6100-Uploader-windows.exe
-          - os: macos-latest
+          - os: macos-15
             out: X6100-Uploader-macos-arm64.dmg
             asset: X6100-Uploader-macos-arm64.dmg
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             out: X6100-Uploader-x86_64.AppImage
             asset: X6100-Uploader-x86_64.AppImage
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - run: pip install pyinstaller paramiko Pillow
@@ -55,14 +55,14 @@ jobs:
           hdiutil create -volname "Xiegu X6100 Base Patch Firmware Uploader" -srcfolder $STAGE -ov -format UDZO X6100-Uploader-macos-arm64.dmg
       - if: runner.os == 'Linux'
         run: bash app/build-linux.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.asset }}
           path: ${{ matrix.out }}
           if-no-files-found: error
       # make_latest: false keeps the newest firmware release (r*) as "Latest",
       # so /releases/latest still resolves to a .xgf for the installers.
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: Xiegu X6100 Base Patch Firmware Uploader ${{ env.RELEASE_TAG }}

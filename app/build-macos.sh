@@ -22,6 +22,10 @@ else
   echo "warning: $ICON missing, building without a custom icon"
 fi
 
+if [ -f assets/x6100-icon-64.png ]; then
+  set -- "$@" --add-data "assets/x6100-icon-64.png:assets"
+fi
+
 if [ -d firmwares ] && [ -n "$(ls -A firmwares)" ]; then
   set -- "$@" --add-data "firmwares:firmwares"
 else
