@@ -51,8 +51,13 @@ jobs:
       - if: runner.os == 'macOS'
         run: |
           bash app/build-macos.sh
-          STAGE=dmg-stage && rm -rf $STAGE && mkdir -p $STAGE && cp -R "dist/X6100-Uploader.app" $STAGE/ && ln -s /Applications $STAGE/Applications
-          hdiutil create -volname "Xiegu X6100 Base Patch Firmware Uploader" -srcfolder $STAGE -ov -format UDZO X6100-Uploader-macos-arm64.dmg
+          STAGE=dmg-stage && rm -rf "$STAGE" && mkdir -p "$STAGE" && cp -R "dist/X6100-Uploader.app" "$STAGE/" && ln -s /Applications "$STAGE/Applications"
+          for i in 1 2 3 4 5; do
+            hdiutil create -volname "Xiegu X6100 Base Patch Firmware Uploader" -srcfolder "$STAGE" -ov -format UDZO X6100-Uploader-macos-arm64.dmg && break
+            echo "hdiutil attempt $i failed (Resource busy), retrying..."
+            sleep 5
+          done
+          test -f X6100-Uploader-macos-arm64.dmg
       - if: runner.os == 'Linux'
         run: bash app/build-linux.sh
       - uses: actions/upload-artifact@v7
