@@ -1,7 +1,7 @@
 name: android-apk
-# Uploader binaries only. Upstream firmware releases use r* tags and are never
-# touched: this runs on v*/app-v* tags and on manual dispatch, attaches the APK
-# to RELEASE_TAG, and uses make_latest: false so the newest r* release stays
+# Uploader binary is attached to the firmware release (default: r13)
+# per maintainer decision. Manual dispatch attaches the APK
+# to RELEASE_TAG, and uses make_latest: false so the firmware release keeps
 # "Latest".
 
 on:
@@ -10,7 +10,7 @@ on:
       tag:
         description: "Release tag to create or update (APK lands on that release)"
         required: true
-        default: "uploader-latest"
+        default: "r13"
   push:
     tags: ["v*", "app-v*"]
 
@@ -18,7 +18,7 @@ permissions:
   contents: write
 
 env:
-  # Tag pushes use the pushed tag; manual runs use the input (default uploader-latest).
+  # Tag pushes use the pushed tag; manual runs use the input (default r13).
   RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:

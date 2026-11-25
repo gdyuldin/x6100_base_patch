@@ -122,9 +122,18 @@ if ([string]::IsNullOrWhiteSpace($File)) {
     Write-Host "No bundled firmware found. Downloading latest release..."
     $url = $null
     try {
-      $rel = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest" -TimeoutSec 20
-      $asset = $rel.assets | Where-Object { $_.name -like "*.xgf" } | Select-Object -First 1
-      if ($asset) { $url = $asset.browser_download_url }
+      # Scan the release list for the newest .xgf instead of only
+      # /releases/latest, because the same release also hosts uploader binaries.
+      $rels = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases?per_page=30" -TimeoutSec 20
+      foreach ($rel in $rels) {
+        $asset = $rel.assets | Where-Object { $_.name -like "*.xgf" } | Select-Object -First 1
+        if ($asset) { $url = $asset.browser_download_url; break }
+      }
+      if (-not $url) {
+        $rel = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest" -TimeoutSec 20
+        $asset = $rel.assets | Where-Object { $_.name -like "*.xgf" } | Select-Object -First 1
+        if ($asset) { $url = $asset.browser_download_url }
+      }
     } catch { }
     if (-not $url) { Write-Error "Download failed. Download a .xgf by hand and re-run with -File PATH."; exit 1 }
     $tmp = Join-Path $env:TEMP ([System.IO.Path]::GetFileName($url))
