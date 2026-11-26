@@ -37,8 +37,8 @@
 <summary><b>Is this for me? Click to check</b></summary>
 
 - Yes, if you use SSB/CW/AM/FM on the X6100 and want cleaner TX/RX.
-- Yes, if you use R1CBU GUI — extra sliders (comp ratio, ANF, NR/NB, IF-shift, TX filter, `TX codec gain`) light up.
-- No, if you only want stock behavior — skip it.
+- Yes, if you use R1CBU GUI - extra sliders (comp ratio, ANF, NR/NB, IF-shift, TX filter, `TX codec gain`) light up.
+- No, if you only want stock behavior - skip it.
 
 </details>
 
@@ -53,11 +53,11 @@ Check yours on the radio: **System info → BASE**. Pick the highest `rN` for yo
 
 ---
 
-## Option A — Automatic install (recommended, easiest)
+## Option A - Automatic install (recommended, easiest)
 
 You run one small script on your computer. It sends the firmware file to the radio over WiFi. You do **not** need WinSCP or FileZilla. The actual flashing still happens safely from the radio menu.
 
-### Fastest — one line, nothing to download first
+### Fastest - one line, nothing to download first
 
 The script finds the radio by itself, shows a firmware menu, and downloads the latest firmware if needed. Just paste one line:
 
@@ -83,25 +83,25 @@ Prefer files on disk? Follow Step 1 below, then run the script from the folder.
 - [ ] Your computer on the **same WiFi** as the radio
 - [ ] SSH login for the radio: user `root`, password `123` (unless you changed it before)
 
-### Step 1 — Download the installer and the firmware to your computer
+### Step 1 - Download the installer and the firmware to your computer
 
-**Way 1 — Download ZIP (best for beginners, no extra tools):**
+**Way 1 - Download ZIP (best for beginners, no extra tools):**
 
 1. Open https://github.com/gdyuldin/x6100_base_patch in your browser.
 2. Make sure the branch says `1.1.6`, click the green **`<> Code`** button → **`Download ZIP`**.
 3. Unzip the file. You get a folder like `x6100_base_patch-1.1.6` containing:
    - `tools/install.sh` (for Linux / Mac)
    - `tools/install.ps1` (for Windows)
-   - `firmwares/` (older `.xgf` files; latest r10+ comes from releases — the installer downloads it automatically)
+   - `firmwares/` (older `.xgf` files; latest r10+ comes from releases - the installer downloads it automatically)
 
-**Way 2 — Git clone (if you already use git):**
+**Way 2 - Git clone (if you already use git):**
 
 ```bash
 git clone --branch 1.1.6 https://github.com/gdyuldin/x6100_base_patch.git
 cd x6100_base_patch
 ```
 
-**Way 3 — Just 2 files (smallest download):**
+**Way 3 - Just 2 files (smallest download):**
 
 1. Download your `.xgf` from [releases](https://github.com/gdyuldin/x6100_base_patch/releases) (Assets section; older files are also in [`firmwares/`](firmwares/)).
 2. Download the script: `tools/install.sh` (Linux/Mac) or `tools/install.ps1` (Windows) the same way (`Download raw file`).
@@ -109,13 +109,13 @@ cd x6100_base_patch
 
 Not sure which `.xgf`? See [Compatibility](#compatibility): match the date in the filename to your radio's **System info → BASE** date.
 
-### Step 2 — Open a terminal in that folder
+### Step 2 - Open a terminal in that folder
 
-**Windows — easiest, no terminal at all:**
+**Windows - easiest, no terminal at all:**
 
 Just double-click `tools\install.bat` in the unzipped folder. A window opens and walks you through it. (It runs `tools\install.ps1` for you and keeps the window open at the end so you can read the result.)
 
-**Windows — PowerShell way:**
+**Windows - PowerShell way:**
 
 1. Press the Windows key, type `PowerShell`, open **Windows PowerShell**.
 2. Go to the folder you unzipped, e.g.:
@@ -123,7 +123,7 @@ Just double-click `tools\install.bat` in the unzipped folder. A window opens and
    cd $HOME\Downloads\x6100_base_patch-1.1.6
    dir
    ```
-   You should see `tools` and `firmwares`. If `dir` does not show them, you are in the wrong folder — `cd` again.
+   You should see `tools` and `firmwares`. If `dir` does not show them, you are in the wrong folder - `cd` again.
 3. If Windows blocks the script with *"running scripts is disabled"*, allow it for this window only:
    ```powershell
    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
@@ -146,7 +146,7 @@ Just double-click `tools\install.bat` in the unzipped folder. A window opens and
    ls
    ```
 
-### Step 3 — Run the uploader (copy-paste)
+### Step 3 - Run the uploader (copy-paste)
 
 The script is a wizard: it **finds the radio on WiFi by itself**, shows a **numbered firmware menu** (just press Enter for the recommended one), then uploads. You only type something if it asks.
 
@@ -157,7 +157,7 @@ chmod +x tools/install.sh
 ./tools/install.sh
 ```
 
-It may ask: pick a firmware number (Enter = recommended), confirm `Upload? [Y/n]` (Enter = Yes). When it asks for a password, type `123` (you will see nothing while typing — that is normal) and press Enter. If auto-find fails, it asks for the IP from the radio's WiFi screen.
+It may ask: pick a firmware number (Enter = recommended), confirm `Upload? [Y/n]` (Enter = Yes). When it asks for a password, type `123` (you will see nothing while typing - that is normal) and press Enter. If auto-find fails, it asks for the IP from the radio's WiFi screen.
 
 Skip the questions (replace IP/filename with yours):
 
@@ -177,7 +177,7 @@ Same wizard: auto-find, firmware menu, `Upload? [Y/n]`, password `123` when aske
 .\tools\install.ps1 -Ip 192.168.1.100 -File $HOME\Downloads\X6100_BBFW_V1.1.6_230307001_r13.xgf -Yes
 ```
 
-A good upload looks like this: `Found your radio at: ...`, SSH check passes, a progress bar moves, then `ls -lh /usr/firmware/xxxx.xgf` prints the file. If it stops with an error, read it — it usually means wrong WiFi, wrong IP, or wrong password.
+A good upload looks like this: `Found your radio at: ...`, SSH check passes, a progress bar moves, then `ls -lh /usr/firmware/xxxx.xgf` prints the file. If it stops with an error, read it - it usually means wrong WiFi, wrong IP, or wrong password.
 
 What each script is:
 
@@ -208,7 +208,7 @@ Missing `scp`/`ssh`? Linux: `sudo apt install openssh-client`. macOS: preinstall
 
 </details>
 
-### Step 4 — Finish on the radio (flash it)
+### Step 4 - Finish on the radio (flash it)
 
 - [ ] System settings → Firmware upgrade → choose the uploaded `.xgf` → Update
 - [ ] Wait, reboot → System info → BASE version ends in `rN` (e.g. `r13`)
@@ -217,7 +217,7 @@ If the file is not listed, it landed in the wrong folder. Re-run the script (it 
 
 ---
 
-## Option A2 — GUI app (Windows / Linux / macOS / Android, optional)
+## Option A2 - GUI app (Windows / Linux / macOS / Android, optional)
 
 Same job as the script above, with a window: it finds the radio on WiFi, you pick the `.xgf`, it copies to `/usr/firmware`. Flashing is still done on the radio menu.
 
@@ -227,7 +227,7 @@ Get the builds from the [releases page](https://github.com/gdyuldin/x6100_base_p
 
 ---
 
-## Option B — Manual install (WinSCP / FileZilla / `scp`)
+## Option B - Manual install (WinSCP / FileZilla / `scp`)
 
 1. Download a `.xgf` from [releases](https://github.com/gdyuldin/x6100_base_patch/releases) (Assets section).
 2. Boot stock firmware (no SD card).
@@ -255,7 +255,7 @@ Get the builds from the [releases page](https://github.com/gdyuldin/x6100_base_p
 
 ---
 
-## After flashing — TX calibration
+## After flashing - TX calibration
 
 Patched levels differ from stock, so calibrate once:
 
@@ -281,7 +281,7 @@ File is in the wrong folder. It must be `/usr/firmware/xxx.xgf`, not `/root/`. R
 - Same WiFi network for PC and radio?
 - Booted without SD card?
 - IP changed? Re-check radio WiFi screen.
-- Password `123` fails? You changed it before — use the new one.
+- Password `123` fails? You changed it before - use the new one.
 
 </details>
 
@@ -295,7 +295,7 @@ Flashing a `221112001` file on a `230307001` radio (or reverse) will fail / misb
 <details>
 <summary><b>Low TX power / high ALC after flash</b></summary>
 
-Expected — do the TX calibration section above. Start with `TX codec gain`, then per-band corr.
+Expected - do the TX calibration section above. Start with `TX codec gain`, then per-band corr.
 
 </details>
 
@@ -310,37 +310,37 @@ Flash the stock `.xgf`/`.img` from Xiegu the same way. This patch only replaces 
 
 ## Changelog
 
-Latest release: **r13** — get it from [releases](https://github.com/gdyuldin/x6100_base_patch/releases). Match the file date (`221112001` / `230307001`) to your radio's **System info → BASE** date.
+Latest release: **r13** - get it from [releases](https://github.com/gdyuldin/x6100_base_patch/releases). Match the file date (`221112001` / `230307001`) to your radio's **System info → BASE** date.
 
 ### r13
-* Battery indicator now computed from a real discharge curve (voltage → %). Display only — charging logic untouched.
-* AIC PLL setup fixed: input sampling rate (and bandwidth) is now 100 kHz. Side effect — birdies move slightly up in frequency.
+* Battery indicator now computed from a real discharge curve (voltage → %). Display only - charging logic untouched.
+* AIC PLL setup fixed: input sampling rate (and bandwidth) is now 100 kHz. Side effect - birdies move slightly up in frequency.
 * Zoom (FFT decimation path) optimisations.
 
 ### r12
 New features:
-* **CESSB** (Controlled Envelope SSB, idea by @ki9ng) — ON/OFF plus power-up level (dB). Raises average TX power and loudness by clipping/filtering to cut peak-to-average ratio while keeping the signal clean. Measured by KI9NG: Conservative (p99) +2.4 dB, barely audible; Recommended (p97) +3.7 dB, clean, no pumping; Aggressive (p95) +4.3 dB, slightly "processed". With a calibrated TX level, ALC should sit around 0.1–0.3 and never exceed 1.0 for long. Even at 0 dB power-up it protects the finals (and any amp) from overload and out-of-band emissions.
-* **VOX** — works with the hand mic / anything on the MIC socket, and line-in in SSB (line-in only in digital modes). Does **not** work with the internal mic: its phantom power is on only during TX, so it hears nothing on RX. Controls: ON/OFF, VOX gain (more = more sensitive, ~50 tested), anti-VOX gain (0 = ignore RX audio), delay against dropouts on pauses. Adds a small TX delay so speech starts aren't clipped, plus a handover timeout against fast TX/RX flapping.
-* **CW peak filter** — resonant filter on the CW key frequency with adjustable Q (inspired by HDSDR). Lifts weak signals; starts ringing at high Q.
+* **CESSB** (Controlled Envelope SSB, idea by @ki9ng) - ON/OFF plus power-up level (dB). Raises average TX power and loudness by clipping/filtering to cut peak-to-average ratio while keeping the signal clean. Measured by KI9NG: Conservative (p99) +2.4 dB, barely audible; Recommended (p97) +3.7 dB, clean, no pumping; Aggressive (p95) +4.3 dB, slightly "processed". With a calibrated TX level, ALC should sit around 0.1-0.3 and never exceed 1.0 for long. Even at 0 dB power-up it protects the finals (and any amp) from overload and out-of-band emissions.
+* **VOX** - works with the hand mic / anything on the MIC socket, and line-in in SSB (line-in only in digital modes). Does **not** work with the internal mic: its phantom power is on only during TX, so it hears nothing on RX. Controls: ON/OFF, VOX gain (more = more sensitive, ~50 tested), anti-VOX gain (0 = ignore RX audio), delay against dropouts on pauses. Adds a small TX delay so speech starts aren't clipped, plus a handover timeout against fast TX/RX flapping.
+* **CW peak filter** - resonant filter on the CW key frequency with adjustable Q (inspired by HDSDR). Lifts weak signals; starts ringing at high Q.
 Fixes and changes:
 * NR stability improvements.
 * SSB RX bandwidth 3300 → 5000 Hz.
 * Incoming-audio DC blocker moved into the AIC3204 chip (less MCU load).
-* BASE→MAIN output level raised to 29 dB — cleaner recordings and CW/FT4-8 decoding on the APP side.
+* BASE→MAIN output level raised to 29 dB - cleaner recordings and CW/FT4-8 decoding on the APP side.
 
 ### r11
 * Guards against NR no-audio lockups.
-* **Noise blanker (NB)** — ON/OFF plus width/level controls.
+* **Noise blanker (NB)** - ON/OFF plus width/level controls.
 
 ### r10 (beta)
 * OEM noise reduction replaced with spectral over-subtraction: FFT 512 for narrowband (≤ 3200 Hz), seamless switch to FFT 256 above; time/frequency averaging plus suppression limiting remove the "water flow" musical noise and reduce voice distortion, also on weak signals.
-* NR moved before AGC for better noise-profile detection. The profile adapts over 1–5 s, so after quiet it may look like a "slow turn-on" — that's normal.
+* NR moved before AGC for better noise-profile detection. The profile adapts over 1-5 s, so after quiet it may look like a "slow turn-on" - that's normal.
 * If anything goes wrong: reflash the same or another firmware (OEM GUI), or long-press the lock button to reset the MCU (R1CBU).
 
 ### r9
 * Fixed AGC on CW
 * Updated filters (less ripple/ringing, wider transition)
-* TX bandpass filter control (default 160–3000 Hz)
+* TX bandpass filter control (default 160-3000 Hz)
 
 ### r8
 * IF shift (RX/TX)
@@ -378,9 +378,9 @@ Binary patch, not full FW rebuild. `patch.py` splices new code into stock bins:
 python3 patch.py <oem.bin>   # -> <oem>_rN.bin (actually .xgf container)
 ```
 
-* `asm/helper.s` — trampolines (`insert_to_*` + `*_wrapper`)
-* `Core/Src/` — `compressor`, `modulations`, `anf`, `noise_reduction`, `noise_blanker`, `if_shift`, `vox`, `cw_peak`, `cessb`, `aic3204`, `comm` (I2C regs + spectrum `flow`)
-* `Core/Inc/comm.h` — hijacked I2C regs `12,15,18,19,22-25,35,36,38,44-47`
+* `asm/helper.s` - trampolines (`insert_to_*` + `*_wrapper`)
+* `Core/Src/` - `compressor`, `modulations`, `anf`, `noise_reduction`, `noise_blanker`, `if_shift`, `vox`, `cw_peak`, `cessb`, `aic3204`, `comm` (I2C regs + spectrum `flow`)
+* `Core/Inc/comm.h` - hijacked I2C regs `12,15,18,19,22-25,35,36,38,44-47`
 * Toolchain `arm-none-eabi-gcc`, `cmake` presets in `CMakePresets.json`
 
 Hacking loop (from original notes): update `.text` padding in `stm32f427zgtx_flash.ld` → build → fix `asm/helper.s` → update `patch.py` addresses → run `patch.py`.
@@ -388,4 +388,4 @@ Hacking loop (from original notes): update `.text` padding in `stm32f427zgtx_fla
 ## Links
 
 * Releases: https://github.com/gdyuldin/x6100_base_patch/releases
-* R1CBU GUI (exposes new sliders): search `R1CBU X6100` — needed for comp/ANF/NR/NB/IF-shift UI
+* R1CBU GUI (exposes new sliders): search `R1CBU X6100` - needed for comp/ANF/NR/NB/IF-shift UI
