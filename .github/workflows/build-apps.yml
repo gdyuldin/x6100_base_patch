@@ -1,8 +1,8 @@
 name: desktop-apps
-# Uploader binaries only. Upstream firmware releases use r* tags and are never
-# touched: this runs on v*/app-v* tags and on manual dispatch, attaches assets
-# to RELEASE_TAG, and uses make_latest: false so the newest r* release stays
-# "Latest".
+# Uploader binaries are attached to the firmware release (default: r13)
+# per maintainer decision. Manual dispatch attaches to RELEASE_TAG,
+# tag pushes use v*/app-v*. Uses make_latest: false so the firmware
+# release keeps the "Latest" badge.
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ on:
       tag:
         description: "Release tag to create or update (binaries land on that release)"
         required: true
-        default: "uploader-latest"
+        default: "r13"
   push:
     tags: ["v*", "app-v*"]
 
@@ -18,7 +18,7 @@ permissions:
   contents: write
 
 env:
-  # Tag pushes use the pushed tag; manual runs use the input (default uploader-latest).
+  # Tag pushes use the pushed tag; manual runs use the input (default r13).
   RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:

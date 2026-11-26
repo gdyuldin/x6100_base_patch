@@ -104,7 +104,12 @@ download_latest() {
   echo "No bundled firmware found. Downloading latest release..."
   local tmp url r
   tmp="$(mktemp -d)"
-  url="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null | grep -o 'https://[^"]*\.xgf' | head -1 || true)"
+  # Scan the release list for the newest .xgf instead of /releases/latest,
+  # because the same release also hosts the uploader binaries.
+  url="$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=30" 2>/dev/null | grep -o 'https://[^"]*\.xgf' | head -1 || true)"
+  if [ -z "$url" ]; then
+    url="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null | grep -o 'https://[^"]*\.xgf' | head -1 || true)"
+  fi
   if [ -n "$url" ]; then
     echo "Downloading: $url"
     if curl -fL -o "$tmp/$(basename "$url")" "$url"; then
