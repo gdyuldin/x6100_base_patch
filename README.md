@@ -33,15 +33,6 @@
 | **How long** | ~5 min (mostly WiFi copy) |
 | **Risk** | BASE-only patch; boot stock FW without SD card before uploading |
 
-<details>
-<summary><b>Is this for me? Click to check</b></summary>
-
-- Yes, if you use SSB/CW/AM/FM on the X6100 and want cleaner TX/RX.
-- Yes, if you use R1CBU GUI - extra sliders (comp ratio, ANF, NR/NB, IF-shift, TX filter, `TX codec gain`) light up.
-- No, if you only want stock behavior - skip it.
-
-</details>
-
 ## Compatibility
 
 | Your OEM BASE | Use this file | Notes |
@@ -223,7 +214,7 @@ Same job as the script above, with a window: it finds the radio on WiFi, you pic
 
 Get the builds from the [releases page](https://github.com/gdyuldin/x6100_base_patch/releases) (`X6100-Uploader` assets; the macOS build is Apple Silicon - run from source on an Intel Mac), or run from source - see [`app/`](app/) (desktop, needs Python + `pip install -r app/requirements.txt`) and [`app-android/`](app-android/) (phone, needs Buildozer). The app downloads the firmware from this repo's releases, so no files to pick by hand.
 
-<img src="app-android/screenshot-phone.jpg" width="300" alt="Android app">
+<img src="app-android/screenshot-phone.jpg" width="220" alt="Android app">
 
 ---
 
@@ -239,19 +230,35 @@ Get the builds from the [releases page](https://github.com/gdyuldin/x6100_base_p
 6. System settings → Firmware upgrade → pick file → Update.
 7. Verify BASE shows `rN` suffix.
 
-### Videos
+---
 
-**WiFi + copy files (same flow, just copy instead of editing):**
+## Videos
 
-<a href="https://www.youtube.com/watch?v=9oviNzXT-v8"><img src="https://img.youtube.com/vi/9oviNzXT-v8/hqdefault.jpg" width="320" alt="WiFi and file copy"></a>
-
-**TX level calibration (required after patching):**
-
-<a href="https://www.youtube.com/watch?v=zoN6uAewPK0"><img src="https://img.youtube.com/vi/zoN6uAewPK0/hqdefault.jpg" width="320" alt="TX calibration"></a>
-
-**Unwanted RX after TX fix demo (r7):**
-
-<a href="https://www.youtube.com/watch?v=ljKug5yumMA"><img src="https://img.youtube.com/vi/ljKug5yumMA/hqdefault.jpg" width="320" alt="RX after TX fix"></a>
+<table>
+  <tr>
+    <td align="center" valign="top" width="33%">
+      <a href="https://www.youtube.com/watch?v=9oviNzXT-v8">
+        <img src="https://img.youtube.com/vi/9oviNzXT-v8/mqdefault.jpg" width="260" alt="WiFi and file copy"><br>
+        <sub><b>WiFi + Copy Files</b></sub>
+      </a><br>
+      <sub>Connect to WiFi and copy files to radio</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <a href="https://www.youtube.com/watch?v=zoN6uAewPK0">
+        <img src="https://img.youtube.com/vi/zoN6uAewPK0/mqdefault.jpg" width="260" alt="TX level calibration"><br>
+        <sub><b>TX Level Calibration</b></sub>
+      </a><br>
+      <sub>Required power &amp; ALC calibration after flashing</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <a href="https://www.youtube.com/watch?v=ljKug5yumMA">
+        <img src="https://img.youtube.com/vi/ljKug5yumMA/mqdefault.jpg" width="260" alt="RX after TX fix demo"><br>
+        <sub><b>RX After TX Fix (r7)</b></sub>
+      </a><br>
+      <sub>Demo of ghost RX suppression fix</sub>
+    </td>
+  </tr>
+</table>
 
 ---
 
